@@ -1,0 +1,30 @@
+schema: spec-driven
+
+# Project context
+# This is shown to AI when creating artifacts.
+context: |
+  Tech stack: TypeScript 5.x, NestJS 11, PostgreSQL, TypeORM, Multer, Jest.
+  Project Name: IssueFlow - Ticket Management Backend Platform
+  Domain Knowledge & Core Architecture Constraints:
+    - strict-contract: All implemented REST endpoints must exactly match the routes, HTTP methods, request bodies, and response structures defined in the project's README.md. Do not introduce unauthorized endpoints.
+    - authentication: All endpoints except 'POST /auth/login' must be protected by a JWT-based AuthGuard.
+    - user-creation-password: The 'POST /users' endpoint does not accept a password field in its request body. To make them authenticatable via 'POST /auth/login', the system must automatically assign a fallback default password (e.g., 'secret') hashed with bcrypt on creation.
+    - project-membership: Project membership is not managed by an independent many-to-many join table or explicit endpoints. It must be implicitly inferred from a user's role ('DEVELOPER') and their active ticket assignments within a target project.
+    - attachment-storage: Binary files must be saved securely to the local server filesystem (e.g., './uploads/attachments') to ensure portability without cloud credentials. The database table ('attachments') must strictly persist only file metadata and the string storage path.
+    - testing-trigger: Scheduled tasks like the SLA Escalation scheduler run on a fixed CRON frequency driven by environment variables, and manual trigger testing hooks must be implemented cleanly within the E2E test suite rather than introducing auxiliary testing routes.
+
+# Per-artifact rules
+# Add custom rules for specific artifacts.
+rules:
+  code-generation:
+    - "Always implement explicit NestJS ValidationPipes (using class-validator and class-transformer) on Request DTOs to enforce strict field constraints (e.g., Ticket Statuses, Priority Enums, and Role limitations)."
+    - "When returning user objects from any query or mutation response payload, ensure the hashed password property is explicitly removed or excluded to comply with the secure response contracts."
+    - "Use the NestJS ParseFilePipe along with MaxFileSizeValidator (10MB limit) and FileTypeValidator (MIME type regex match) inside the Attachments controller to safely handle multipart form uploads."
+  tasks:
+    - "Break backend implementation steps into modular pieces: 1) Database Entity & Schema Migrations, 2) Data Transfer Objects (DTOs), 3) Core Service Logic, 4) REST Controller Routing, 5) Module Wiring & Auth Guarantees."
+  testing:
+    - "Every controller resource must have a matching E2E test suite file inside the 'test/' directory."
+    - "Write manual validation hooks inside E2E tests (e.g., directly extracting services from the testing module fixture container) to trigger asynchronous background operations like SLA Escalation logic manually."
+  documentation:
+    - "All architectural assumptions, fallback mechanisms (like default user passwords), and setup instructions must be cleanly documented inside the 'run.md' file."
+    - "Keep the main README.md unaltered as the primary truth source for the REST contract."

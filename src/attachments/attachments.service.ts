@@ -1,0 +1,61 @@
+import * as fs from 'fs';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Attachment } from './attachment.entity';
+import { TicketsService } from '../tickets/tickets.service';
+
+const UPLOAD_DIR = './uploads/attachments';
+
+@Injectable()
+export class AttachmentsService {
+  constructor(
+    @InjectRepository(Attachment)
+    private readonly attachmentRepo: Repository<Attachment>,
+    private readonly ticketsService: TicketsService,
+  ) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  }
+
+  async create(
+    ticketId: number,
+    file: Express.Multer.File,
+  ): Promise<Attachment> {
+    await this.ticketsService.findOne(ticketId);
+
+    const attachment = this.attachmentRepo.create({
+      filename: file.originalname,
+      contentType: file.mimetype,
+      size: file.size,
+      storagePath: file.path,
+      ticketId,
+    });
+
+    try {
+      return await this.attachmentRepo.save(attachment);
+    } catch (err) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        // ignore cleanup errors
+      }
+      throw err;
+    }
+  }
+
+  async remove(id: number, ticketId?: number): Promise<void> {
+    const where = ticketId === undefined ? { id } : { id, ticketId };
+    const attachment = await this.attachmentRepo.findOne({ where });
+    if (!attachment) {
+      throw new NotFoundException(`Attachment ${id} not found`);
+    }
+
+    try {
+      fs.unlinkSync(attachment.storagePath);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') throw err;
+    }
+
+    await this.attachmentRepo.delete(id);
+  }
+}
