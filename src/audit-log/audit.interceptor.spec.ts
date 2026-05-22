@@ -1,6 +1,6 @@
 import { ExecutionContext, CallHandler } from '@nestjs/common';
-import { of } from 'rxjs';
-import { DataSource } from 'typeorm';
+import { of, lastValueFrom } from 'rxjs';
+import { DataSource, QueryRunner } from 'typeorm';
 import { AuditInterceptor } from './audit.interceptor';
 
 const makeContext = (userId?: string): ExecutionContext =>
@@ -18,58 +18,66 @@ const makeHandler = (): CallHandler => ({
 
 describe('AuditInterceptor', () => {
   let interceptor: AuditInterceptor;
-  let dataSource: { query: jest.Mock };
+  let mockQueryRunner: jest.Mocked<Partial<QueryRunner>>;
+  let mockDataSource: jest.Mocked<Partial<DataSource>>;
 
   beforeEach(() => {
-    dataSource = { query: jest.fn().mockResolvedValue(undefined) };
-    interceptor = new AuditInterceptor(dataSource as unknown as DataSource);
+    mockQueryRunner = {
+      query: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+    };
+    mockDataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+    };
+    interceptor = new AuditInterceptor(mockDataSource as unknown as DataSource);
   });
 
-  it('sets current_user_id when user is authenticated', () => {
+  it('sets current_user_id when user is authenticated', (done) => {
     const context = makeContext('42');
     const handler = makeHandler();
 
-    interceptor.intercept(context, handler).subscribe();
-
-    expect(dataSource.query).toHaveBeenCalledWith(
-      'SET issueflow.current_user_id = $1',
-      ['42'],
-    );
+    interceptor.intercept(context, handler).subscribe(() => {
+      expect(mockQueryRunner.query).toHaveBeenCalledWith(
+        'SET issueflow.current_user_id = $1',
+        ['42'],
+      );
+      done();
+    });
   });
 
-  it('clears current_user_id in finalize after the observable completes', () => {
-    const context = makeContext(undefined);
+  it('clears current_user_id after the observable completes', async () => {
+    const context = makeContext('42');
     const handler = makeHandler();
 
-    // of() is synchronous — subscribe() returns only after teardown (finalize) runs
-    interceptor.intercept(context, handler).subscribe();
+    await lastValueFrom(interceptor.intercept(context, handler));
 
-    expect(dataSource.query).toHaveBeenCalledWith(
+    expect(mockQueryRunner.query).toHaveBeenCalledWith(
       "SET issueflow.current_user_id = ''",
     );
+    expect(mockQueryRunner.release).toHaveBeenCalled();
   });
 
-  it('does not set user id when request has no authenticated user', () => {
+  it('does not create QueryRunner when request has no authenticated user', (done) => {
     const context = makeContext(undefined);
     const handler = makeHandler();
 
-    interceptor.intercept(context, handler).subscribe();
-
-    expect(dataSource.query).not.toHaveBeenCalledWith(
-      'SET issueflow.current_user_id = $1',
-      expect.anything(),
-    );
+    interceptor.intercept(context, handler).subscribe(() => {
+      expect(mockDataSource.createQueryRunner).not.toHaveBeenCalled();
+      done();
+    });
   });
 
-  it('passes the response value through unchanged', () => {
+  it('passes the response value through unchanged', (done) => {
     const context = makeContext('1');
     const handler = makeHandler();
     const values: any[] = [];
 
     interceptor.intercept(context, handler).subscribe({
       next: (v) => values.push(v),
+      complete: () => {
+        expect(values).toEqual(['result']);
+        done();
+      },
     });
-
-    expect(values).toEqual(['result']);
   });
 });

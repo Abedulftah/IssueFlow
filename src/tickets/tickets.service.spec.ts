@@ -425,9 +425,6 @@ describe('TicketsService', () => {
 
   describe('update — soft-deleted blocker is ignored (task 2.6)', () => {
     it('TypeORM excludes soft-deleted blockers from relation load — no extra filter needed', async () => {
-      // When TypeORM loads relations on an entity with @DeleteDateColumn, soft-deleted
-      // entries are automatically excluded. This test confirms the blocker list is empty
-      // (simulating what TypeORM would return when the blocker is soft-deleted).
       const ticket = mockTicket({ status: TicketStatus.IN_REVIEW, blockers: [] } as any);
       repo.findOne
         .mockResolvedValueOnce(ticket)
@@ -436,6 +433,87 @@ describe('TicketsService', () => {
 
       const result = await service.update(1, { status: TicketStatus.DONE });
       expect(result.status).toBe(TicketStatus.DONE);
+    });
+  });
+
+  describe('findAllByProject', () => {
+    it('returns tickets for a valid projectId', async () => {
+      const tickets = [mockTicket(), mockTicket({ id: 2 })];
+      repo.find.mockResolvedValue(tickets);
+
+      const result = await service.findAllByProject(1);
+      expect(result).toEqual(tickets);
+    });
+
+    it('throws BadRequestException when projectId is falsy', async () => {
+      await expect(service.findAllByProject(0)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('create with userId', () => {
+    it('sets session userId in the transaction when userId is provided', async () => {
+      repo.query.mockResolvedValue([{ userId: '5' }]);
+      repo.create.mockReturnValue(mockTicket());
+      repo.save.mockImplementation((t) => Promise.resolve({ ...t, id: 20, assigneeId: 5 }));
+
+      const ticket = await service.create(
+        { title: 'T', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: 1 },
+        42,
+      );
+      expect(ticket).toBeDefined();
+    });
+  });
+
+  describe('update with userId', () => {
+    it('sets session userId in the transaction when userId is provided', async () => {
+      const ticket = mockTicket({ status: TicketStatus.TODO });
+      repo.findOne.mockResolvedValue(ticket);
+      repo.save.mockResolvedValue({ ...ticket, title: 'Updated' });
+
+      const result = await service.update(1, { title: 'Updated' }, 7);
+      expect(result.title).toBe('Updated');
+    });
+  });
+
+  describe('softDelete with userId', () => {
+    it('sets session userId in the transaction when userId is provided', async () => {
+      const ticket = mockTicket({ status: TicketStatus.TODO });
+      repo.findOne.mockResolvedValue(ticket);
+
+      await expect(service.softDelete(1, 3)).resolves.toBeUndefined();
+      expect(repo.softDelete).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('findOverdueForEscalation', () => {
+    it('returns overdue tickets via query builder', async () => {
+      const tickets = [mockTicket({ dueDate: new Date(Date.now() - 86400_000) })];
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(tickets),
+      };
+      (repo as any).createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      const result = await service.findOverdueForEscalation();
+      expect(result).toEqual(tickets);
+    });
+  });
+
+  describe('getProjectWorkload', () => {
+    it('returns workload rows mapped to typed objects', async () => {
+      const rawRows = [
+        { userId: '1', username: 'alice', openTicketCount: '3' },
+        { userId: '2', username: 'bob',   openTicketCount: '1' },
+      ];
+      repo.query.mockResolvedValue(rawRows);
+
+      const result = await service.getProjectWorkload(1);
+
+      expect(result).toEqual([
+        { userId: 1, username: 'alice', openTicketCount: 3 },
+        { userId: 2, username: 'bob',   openTicketCount: 1 },
+      ]);
     });
   });
 });

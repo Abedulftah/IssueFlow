@@ -145,31 +145,6 @@ describe('Tickets API (e2e)', () => {
       expect(res.body.assigneeId).toBe(devUserId);
     });
 
-    it('leaves assigneeId null when no DEVELOPERs are in the project', async () => {
-      // Create a separate project with no developer assigned
-      const projRes = await request(app.getHttpServer())
-        .post('/projects')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: 'No Dev Project', description: 'x', ownerId: adminUserId })
-        .expect(200);
-      const noProjId = projRes.body.id;
-
-      const res = await request(app.getHttpServer())
-        .post('/tickets')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          title: 'No dev ticket',
-          priority: TicketPriority.LOW,
-          type: TicketType.TECHNICAL,
-          projectId: noProjId,
-        })
-        .expect(200);
-
-      // No developer in this project, so no auto-assign (but admin exists globally)
-      // The auto-assign picks ANY developer globally, so if devUserId exists, it may be assigned
-      // This test just asserts the field exists (either a number or null)
-      expect(res.body).toHaveProperty('assigneeId');
-    });
   });
 
   // ── GET /tickets?projectId ────────────────────────────────────────────────
@@ -458,6 +433,22 @@ describe('Tickets API (e2e)', () => {
   // ── POST /tickets/:ticketId/restore ───────────────────────────────────────
 
   describe('POST /tickets/:ticketId/restore', () => {
+    it('returns 401 without token', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Restore auth test', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId })
+        .expect(200);
+      const id = createRes.body.id;
+
+      await request(app.getHttpServer())
+        .delete(`/tickets/${id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      return request(app.getHttpServer()).post(`/tickets/${id}/restore`).expect(401);
+    });
+
     it('restores a soft-deleted ticket', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/tickets')
@@ -482,6 +473,26 @@ describe('Tickets API (e2e)', () => {
         .expect(200);
 
       expect(listRes.body.find((t: any) => t.id === restoreId)).toBeDefined();
+    });
+
+    it('returns 404 when ticket does not exist', () => {
+      return request(app.getHttpServer())
+        .post('/tickets/999999/restore')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+    });
+
+    it('returns 400 when ticket is not deleted', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Active ticket restore', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId })
+        .expect(200);
+
+      return request(app.getHttpServer())
+        .post(`/tickets/${createRes.body.id}/restore`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
     });
   });
 
@@ -522,7 +533,7 @@ describe('Tickets API (e2e)', () => {
         .expect(401);
     });
 
-    it('imports tickets from CSV and returns { created, failed, errors }', async () => {
+    it('imports tickets from CSV and returns { created, failed, errors } with exact counts', async () => {
       const csvContent = [
         'title,description,status,priority,type',
         'Imported ticket 1,desc1,TODO,LOW,TECHNICAL',
@@ -542,7 +553,17 @@ describe('Tickets API (e2e)', () => {
         failed: expect.any(Number),
         errors: expect.any(Array),
       });
-      expect(res.body.created).toBeGreaterThanOrEqual(1);
+      expect(res.body.created).toBe(2);
+      expect(res.body.failed).toBe(1);
+      expect(res.body.errors).toHaveLength(1);
+    });
+
+    it('returns 400 when no file is attached', () => {
+      return request(app.getHttpServer())
+        .post('/tickets/import')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('projectId', String(projectId))
+        .expect(400);
     });
   });
 });

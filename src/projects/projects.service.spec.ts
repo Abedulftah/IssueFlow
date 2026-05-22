@@ -89,6 +89,29 @@ describe('ProjectsService', () => {
     });
   });
 
+  describe('findOneWithDeleted', () => {
+    it('returns project including soft-deleted ones', async () => {
+      const project = mockProject({ deletedAt: new Date() });
+      repo.findOne.mockResolvedValue(project);
+      await expect(service.findOneWithDeleted(1)).resolves.toEqual(project);
+    });
+
+    it('returns null when project does not exist', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.findOneWithDeleted(9999)).resolves.toBeNull();
+    });
+  });
+
+  describe('findDeleted', () => {
+    it('returns only soft-deleted projects', async () => {
+      const deleted = [mockProject({ deletedAt: new Date() })];
+      repo.find.mockResolvedValue(deleted);
+      const result = await service.findDeleted();
+      expect(result).toEqual(deleted);
+      expect(repo.find).toHaveBeenCalledWith(expect.objectContaining({ withDeleted: true }));
+    });
+  });
+
   describe('update', () => {
     it('throws NotFoundException when project does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
@@ -104,6 +127,15 @@ describe('ProjectsService', () => {
 
       await service.update(1, { name: 'New' });
       expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'New', description: 'Keep' }));
+    });
+
+    it('sets session userId when userId is provided', async () => {
+      const project = mockProject();
+      repo.findOne.mockResolvedValue(project);
+      repo.save.mockResolvedValue(project);
+
+      await service.update(1, { name: 'Updated' }, 7);
+      expect(repo.save).toHaveBeenCalled();
     });
   });
 
@@ -122,8 +154,13 @@ describe('ProjectsService', () => {
     it('does NOT call softDelete on tickets (no cascade)', async () => {
       repo.findOne.mockResolvedValue(mockProject());
       await service.softDelete(1);
-      // Only softDelete on projects repo — no ticket repo reference in ProjectsService
       expect(repo.softDelete).toHaveBeenCalledTimes(1);
+    });
+
+    it('sets session userId when userId is provided', async () => {
+      repo.findOne.mockResolvedValue(mockProject());
+      await service.softDelete(1, 5);
+      expect(repo.softDelete).toHaveBeenCalledWith(1);
     });
   });
 
@@ -141,6 +178,12 @@ describe('ProjectsService', () => {
     it('calls restore on the repository when project is soft-deleted', async () => {
       repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
       await service.restore(1);
+      expect(repo.restore).toHaveBeenCalledWith(1);
+    });
+
+    it('sets session userId when userId is provided', async () => {
+      repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
+      await service.restore(1, 3);
       expect(repo.restore).toHaveBeenCalledWith(1);
     });
   });

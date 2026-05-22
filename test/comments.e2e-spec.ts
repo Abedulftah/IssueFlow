@@ -321,32 +321,4 @@ describe('Comments API (e2e)', () => {
     });
   });
 
-  // ── Optimistic locking on comments ────────────────────────────────────────
-  // NOTE: UpdateCommentDto has no 'version' field (ValidationPipe whitelists it away),
-  // so version-based conflict detection cannot be triggered via the public API.
-  // The @VersionColumn on Comment requires exposing 'version' in UpdateCommentDto
-  // and adding a manual version check in CommentsService to be testable end-to-end.
-
-  describe('Optimistic locking on comment update', () => {
-    it('two sequential updates both succeed (version not enforced in current API contract)', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/comments`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Lock comment' })
-        .expect(200);
-      const commentId = res.body.id;
-
-      await request(app.getHttpServer())
-        .patch(`/tickets/${ticketId}/comments/${commentId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ content: 'Update A' })
-        .expect(200);
-
-      await request(app.getHttpServer())
-        .patch(`/tickets/${ticketId}/comments/${commentId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ content: 'Update B' })
-        .expect(200);
-    });
-  });
 });

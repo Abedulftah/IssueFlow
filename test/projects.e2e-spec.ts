@@ -208,7 +208,6 @@ describe('Projects API (e2e)', () => {
   });
 
   // ── GET /projects/deleted (ADMIN-only soft-delete list) ───────────────────
-  // Requires soft-delete (deletedAt) to be implemented on Project entity.
 
   describe('GET /projects/deleted', () => {
     it('returns 401 without token', () => {
@@ -223,13 +222,52 @@ describe('Projects API (e2e)', () => {
 
       expect(Array.isArray(res.body)).toBe(true);
     });
+
+    it('includes the deleted project and excludes active ones', async () => {
+      const projRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Will Be Deleted', description: 'x', ownerId: adminUserId })
+        .expect(200);
+      const deletedId = projRes.body.id;
+
+      await request(app.getHttpServer())
+        .delete(`/projects/${deletedId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get('/projects/deleted')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.find((p: any) => p.id === deletedId)).toBeDefined();
+      // Active projectId should not appear in deleted list
+      expect(res.body.find((p: any) => p.id === projectId)).toBeUndefined();
+    });
   });
 
   // ── POST /projects/:projectId/restore (ADMIN-only) ────────────────────────
 
   describe('POST /projects/:projectId/restore', () => {
+    it('returns 401 without token', async () => {
+      const projRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Restore Auth Test', description: 'x', ownerId: adminUserId })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .delete(`/projects/${projRes.body.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      return request(app.getHttpServer())
+        .post(`/projects/${projRes.body.id}/restore`)
+        .expect(401);
+    });
+
     it('restores a soft-deleted project', async () => {
-      // Create and soft-delete a project
       const projRes = await request(app.getHttpServer())
         .post('/projects')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -242,19 +280,31 @@ describe('Projects API (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      // Restore
       await request(app.getHttpServer())
         .post(`/projects/${restoreId}/restore`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
-      // Should appear in standard listing again
       const listRes = await request(app.getHttpServer())
         .get('/projects')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
 
       expect(listRes.body.find((p: any) => p.id === restoreId)).toBeDefined();
+    });
+
+    it('returns 404 when project does not exist', () => {
+      return request(app.getHttpServer())
+        .post('/projects/999999/restore')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+    });
+
+    it('returns 400 when project is not deleted', async () => {
+      return request(app.getHttpServer())
+        .post(`/projects/${projectId}/restore`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
     });
   });
 

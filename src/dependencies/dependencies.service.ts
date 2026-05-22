@@ -70,21 +70,42 @@ export class DependenciesService {
   private async wouldCreateCycle(
     startId: number,
     targetId: number,
-    visited = new Set<number>(),
   ): Promise<boolean> {
-    if (visited.has(startId)) return false;
-    visited.add(startId);
 
-    const ticket = await this.ticketsRepository.findOne({
-      where: { id: startId },
-      relations: ['blockers'],
-    });
-    if (!ticket) return false;
+    const stack: number[] = [startId];
+    const visited = new Set<number>();
 
-    for (const blocker of ticket.blockers) {
-      if (blocker.id === targetId) return true;
-      if (await this.wouldCreateCycle(blocker.id, targetId, visited)) return true;
+    while (stack.length > 0) {
+      const currentId = stack.pop()!;
+
+      if (visited.has(currentId)) {
+        continue;
+      }
+      visited.add(currentId);
+
+      const ticket = await this.ticketsRepository.findOne({
+        where: { id: currentId },
+        relations: ['blockers'],
+      });
+
+      if (!ticket || !ticket.blockers) {
+        continue;
+      }
+
+      // 4. Evaluate branches
+      for (const blocker of ticket.blockers) {
+        // Cycle detected!
+        if (blocker.id === targetId) {
+          return true;
+        }
+
+        if (!visited.has(blocker.id)) {
+          stack.push(blocker.id);
+        }
+      }
     }
+
+    // Looked through the whole accessible graph and found no cycles
     return false;
   }
 }

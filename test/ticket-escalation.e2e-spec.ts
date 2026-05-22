@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import request from 'supertest';
 import { SchedulerService } from '../src/scheduler/scheduler.service';
+import { SchedulerModule } from '../src/scheduler/scheduler.module';
 import { Ticket } from '../src/tickets/ticket.entity';
 import { AuditLog } from '../src/audit-log/entities/audit-log.entity';
 import { TicketPriority, TicketStatus, TicketType } from '../src/tickets/enums';
@@ -26,7 +27,7 @@ describe('Ticket Auto-Escalation (e2e)', () => {
   let projectId: number;
 
   beforeAll(async () => {
-    ctx = await bootstrapTestApp();
+    ctx = await bootstrapTestApp({ extraModules: [SchedulerModule] });
     app = ctx.app;
     schedulerService = app.get(SchedulerService);
     ticketRepo = ctx.moduleRef.get(getRepositoryToken(Ticket));
@@ -169,6 +170,37 @@ describe('Ticket Auto-Escalation (e2e)', () => {
       where: { action: 'ESCALATE', entityId: String(id) },
     });
     expect(auditEntries).toHaveLength(1);
+  });
+
+  // ── Future dueDate → skip ────────────────────────────────────────────────────
+
+  it('does not escalate a ticket whose dueDate is in the future', async () => {
+    await clearTicketsAndAudit();
+    const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days from now
+
+    const body: any = {
+      title: 'Future due ticket',
+      priority: TicketPriority.LOW,
+      type: TicketType.BUG,
+      projectId,
+    };
+    body.dueDate = futureDate;
+    const res = await request(app.getHttpServer())
+      .post('/tickets')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(body)
+      .expect(200);
+    const id = res.body.id;
+
+    await schedulerService.runEscalation();
+
+    const after = await request(app.getHttpServer())
+      .get(`/tickets/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(after.body.priority).toBe(TicketPriority.LOW);
+    expect(after.body.isOverdue).toBe(false);
   });
 
   // ── 6.7 No dueDate → skip ────────────────────────────────────────────────────

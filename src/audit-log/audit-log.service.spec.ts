@@ -1,9 +1,13 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AuditLogService } from './audit-log.service';
 import { AuditLog } from './entities/audit-log.entity';
 import { ActorType } from './enums/actor-type.enum';
+
+beforeAll(() => jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {}));
+afterAll(() => jest.restoreAllMocks());
 
 const mockRepo = () => ({
   create: jest.fn(),

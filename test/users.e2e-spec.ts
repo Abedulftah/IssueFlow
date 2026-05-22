@@ -94,6 +94,20 @@ describe('Users API (e2e)', () => {
         .send({ username: 'noauth_user', email: 'noauth@test.com', fullName: 'No Auth', role: UserRole.DEVELOPER })
         .expect(200);
     });
+
+    it('returns 400 when email is malformed', () => {
+      return request(app.getHttpServer())
+        .post('/users')
+        .send({ username: 'bademail_user', email: 'not-an-email', fullName: 'Bad Email', role: UserRole.DEVELOPER })
+        .expect(400);
+    });
+
+    it('returns 400 when role is not a valid enum value', () => {
+      return request(app.getHttpServer())
+        .post('/users')
+        .send({ username: 'badrole_user', email: 'badrole@test.com', fullName: 'Bad Role', role: 'OWNER' })
+        .expect(400);
+    });
   });
 
   // ── GET /users ────────────────────────────────────────────────────────────

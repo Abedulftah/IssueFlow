@@ -106,6 +106,48 @@ describe('UsersService', () => {
     });
   });
 
+  describe('findAll', () => {
+    it('returns all users', async () => {
+      const users = [{ id: 1 } as User, { id: 2 } as User];
+      repo.find.mockResolvedValue(users);
+      await expect(service.findAll()).resolves.toEqual(users);
+    });
+  });
+
+  describe('findByUsername', () => {
+    it('returns user when found', async () => {
+      const user = { id: 1, username: 'jdoe' } as User;
+      repo.findOne.mockResolvedValue(user);
+      await expect(service.findByUsername('jdoe')).resolves.toBe(user);
+    });
+
+    it('returns null when not found', async () => {
+      repo.findOne.mockResolvedValue(null);
+      await expect(service.findByUsername('ghost')).resolves.toBeNull();
+    });
+  });
+
+  describe('findByUsernames', () => {
+    it('returns empty array without hitting the DB when given an empty list', async () => {
+      await expect(service.findByUsernames([])).resolves.toEqual([]);
+    });
+
+    it('uses createQueryBuilder to find users by username list', async () => {
+      const users = [{ id: 1, username: 'jdoe' } as User];
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(users),
+      };
+      (repo as any).createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      await expect(service.findByUsernames(['jdoe'])).resolves.toEqual(users);
+      expect(qb.where).toHaveBeenCalledWith(
+        'LOWER(user.username) IN (:...usernames)',
+        { usernames: ['jdoe'] },
+      );
+    });
+  });
+
   describe('update', () => {
     it('updates role and returns saved user', async () => {
       const user = { id: 1, role: UserRole.DEVELOPER, fullName: 'John' } as User;
@@ -113,6 +155,15 @@ describe('UsersService', () => {
       repo.save.mockResolvedValue({ ...user, role: UserRole.ADMIN });
 
       const result = await service.update(1, { role: UserRole.ADMIN });
+      expect(result.role).toBe(UserRole.ADMIN);
+    });
+
+    it('sets session userId when userId is provided', async () => {
+      const user = { id: 1, role: UserRole.DEVELOPER, fullName: 'John' } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.save.mockResolvedValue({ ...user, role: UserRole.ADMIN });
+
+      const result = await service.update(1, { role: UserRole.ADMIN }, 42);
       expect(result.role).toBe(UserRole.ADMIN);
     });
   });
@@ -130,6 +181,15 @@ describe('UsersService', () => {
     it('throws NotFoundException when user does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('sets session userId when userId is provided', async () => {
+      const user = { id: 1 } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.remove.mockResolvedValue(undefined);
+
+      await expect(service.remove(1, 99)).resolves.toBeUndefined();
+      expect(repo.remove).toHaveBeenCalledWith(user);
     });
   });
 });

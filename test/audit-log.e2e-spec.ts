@@ -276,11 +276,4 @@ describe('AuditLog API (e2e)', () => {
     });
   });
 
-  // ── ESCALATE audit entry (requires SchedulerModule) ──────────────────────
-
-  describe.skip('ESCALATE audit entry (requires SchedulerModule)', () => {
-    it('writes an ESCALATE SYSTEM entry for overdue tickets below CRITICAL', () => {
-      // TODO: inject SchedulerService, call runEscalation(), assert ESCALATE audit entry
-    });
-  });
 });

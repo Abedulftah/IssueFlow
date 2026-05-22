@@ -163,6 +163,16 @@ describe('CommentsService', () => {
       await expect(service.update(1, 1, { content: 'x' })).rejects.toThrow(ConflictException);
     });
 
+    it('rethrows non-optimistic-lock errors from save', async () => {
+      repo.findOne.mockResolvedValue(mockComment());
+      usersService.findByUsernames.mockResolvedValue([]);
+      mentionRepo.find.mockResolvedValue([]);
+      const genericError = new Error('Unexpected DB error');
+      repo.save.mockRejectedValue(genericError);
+
+      await expect(service.update(1, 1, { content: 'x' })).rejects.toThrow(genericError);
+    });
+
     it('throws NotFoundException when comment does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.update(1, 999, { content: 'x' })).rejects.toThrow(NotFoundException);
@@ -181,6 +191,28 @@ describe('CommentsService', () => {
     it('throws NotFoundException when comment does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.remove(1, 999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── getMentionsForUser ────────────────────────────────────────────────────
+
+  describe('getMentionsForUser', () => {
+    it('returns paginated mentions for a valid user', async () => {
+      const comment = mockComment({
+        mentions: [{ id: 1, commentId: 1, userId: alice.id, user: alice as any, comment: null }],
+      });
+      mentionRepo.findAndCount.mockResolvedValue([[{ comment, userId: alice.id }], 1]);
+
+      const result = await service.getMentionsForUser(alice.id, 1, 10);
+
+      expect(result.total).toBe(1);
+      expect(result.page).toBe(1);
+      expect(result.data).toHaveLength(1);
+    });
+
+    it('throws NotFoundException when user does not exist', async () => {
+      usersService.findOne.mockRejectedValue(new NotFoundException());
+      await expect(service.getMentionsForUser(999, 1, 10)).rejects.toThrow(NotFoundException);
     });
   });
 

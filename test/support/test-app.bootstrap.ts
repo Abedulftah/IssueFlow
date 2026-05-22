@@ -16,12 +16,15 @@ export interface TestAppContext {
 
 export interface BootstrapOptions {
   customize?: (builder: TestingModuleBuilder) => TestingModuleBuilder;
+  extraModules?: any[];
 }
 
 export async function bootstrapTestApp(
   options: BootstrapOptions = {},
 ): Promise<TestAppContext> {
-  let builder = Test.createTestingModule({ imports: [AppModule] });
+  let builder = Test.createTestingModule({
+    imports: [AppModule, ...(options.extraModules ?? [])],
+  });
   if (options.customize) builder = options.customize(builder);
 
   const moduleRef = await builder.compile();
@@ -31,7 +34,6 @@ export async function bootstrapTestApp(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false }),
   );
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
-  app.enableShutdownHooks();
 
   await app.init();
 

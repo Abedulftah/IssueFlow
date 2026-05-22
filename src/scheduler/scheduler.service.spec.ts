@@ -1,6 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { SchedulerService } from './scheduler.service';
+
+beforeAll(() => jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {}));
+afterAll(() => jest.restoreAllMocks());
 import { Ticket } from '../tickets/ticket.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -103,6 +107,15 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticketRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('logs error and returns early when the initial query throws', async () => {
+      ticketsService.findOverdueForEscalation.mockRejectedValue(new Error('DB connection failed'));
+
+      await service.runEscalation();
+
+      expect(ticketRepo.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('continues processing remaining tickets when one fails', async () => {

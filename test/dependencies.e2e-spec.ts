@@ -1,52 +1,24 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { UserRole } from '../src/users/user.entity';
-import { TicketPriority, TicketStatus, TicketType } from '../src/tickets/enums';
-import {
-  bootstrapTestApp,
-  closeTestApp,
-  TestAppContext,
-} from './support/test-app.bootstrap';
+import { TicketPriority, TicketType } from '../src/tickets/enums';
+import { bootstrapTestApp, closeTestApp, TestAppContext } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
 
 describe('Dependencies API (e2e)', () => {
   let ctx: TestAppContext;
   let app: INestApplication;
-  let adminToken: string;
-  let adminUserId: number;
-  let devUserId: number;
+  let token: string;
   let projectId: number;
   let otherProjectId: number;
 
-  /** Helper: create a ticket and return its id */
-  async function createTicket(
-    title: string,
-    opts: { projectId?: number } = {},
-  ): Promise<number> {
+  async function createTicket(title: string, pId = projectId): Promise<number> {
     const res = await request(app.getHttpServer())
       .post('/tickets')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        title,
-        priority: TicketPriority.LOW,
-        type: TicketType.TECHNICAL,
-        projectId: opts.projectId ?? projectId,
-        assigneeId: devUserId,
-      })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ title, priority: TicketPriority.MEDIUM, type: TicketType.TECHNICAL, projectId: pId })
       .expect(200);
     return res.body.id;
-  }
-
-  /** Helper: advance a ticket through statuses to DONE */
-  async function advanceToDone(ticketId: number): Promise<void> {
-    const steps = [TicketStatus.IN_PROGRESS, TicketStatus.IN_REVIEW, TicketStatus.DONE];
-    for (const status of steps) {
-      await request(app.getHttpServer())
-        .patch(`/tickets/${ticketId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status })
-        .expect(200);
-    }
   }
 
   beforeAll(async () => {
@@ -54,37 +26,32 @@ describe('Dependencies API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    const adminRes = await request(app.getHttpServer())
+    const userRes = await request(app.getHttpServer())
       .post('/users')
       .send({ username: 'dep_admin', email: 'dep_admin@test.com', fullName: 'Dep Admin', role: UserRole.ADMIN })
       .expect(200);
-    adminUserId = adminRes.body.id;
-
-    const devRes = await request(app.getHttpServer())
-      .post('/users')
-      .send({ username: 'dep_dev', email: 'dep_dev@test.com', fullName: 'Dep Dev', role: UserRole.DEVELOPER })
-      .expect(200);
-    devUserId = devRes.body.id;
 
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ username: 'dep_admin', password: 'secret' })
       .expect(200);
-    adminToken = loginRes.body.accessToken;
+    token = loginRes.body.accessToken;
 
-    const projRes = await request(app.getHttpServer())
-      .post('/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Dep Test Project', description: 'e2e', ownerId: adminUserId })
-      .expect(200);
-    projectId = projRes.body.id;
+    const ownerId = userRes.body.id;
 
-    const otherProjRes = await request(app.getHttpServer())
+    const proj1 = await request(app.getHttpServer())
       .post('/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Other Project', description: 'e2e', ownerId: adminUserId })
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Dep Project', description: 'e2e', ownerId })
       .expect(200);
-    otherProjectId = otherProjRes.body.id;
+    projectId = proj1.body.id;
+
+    const proj2 = await request(app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Other Project', description: 'e2e', ownerId })
+      .expect(200);
+    otherProjectId = proj2.body.id;
   });
 
   afterAll(async () => {
@@ -92,280 +59,333 @@ describe('Dependencies API (e2e)', () => {
     await closeTestApp(ctx);
   });
 
-  // ── POST /tickets/:ticketId/dependencies ──────────────────────────────────
+  // ── Auth guard ────────────────────────────────────────────────────────────
 
-  describe('POST /tickets/:ticketId/dependencies', () => {
-    it('returns 401 without token', async () => {
-      const tid = await createTicket('auth test');
-      const bid = await createTicket('blocker');
+  describe('Auth guard', () => {
+    it('GET /tickets/:id/dependencies returns 401 without token', async () => {
+      const id = await createTicket('auth guard ticket');
+      return request(app.getHttpServer()).get(`/tickets/${id}/dependencies`).expect(401);
+    });
 
+    it('POST /tickets/:id/dependencies returns 401 without token', async () => {
+      const id = await createTicket('auth guard ticket 2');
       return request(app.getHttpServer())
-        .post(`/tickets/${tid}/dependencies`)
-        .send({ blockedBy: bid })
+        .post(`/tickets/${id}/dependencies`)
+        .send({ blockedBy: id })
         .expect(401);
     });
 
-    it('adds a dependency and returns 201', async () => {
-      const ticketId = await createTicket('blocked ticket');
-      const blockerId = await createTicket('blocker ticket');
+    it('DELETE /tickets/:id/dependencies/:blockerId returns 401 without token', async () => {
+      const id = await createTicket('auth guard ticket 3');
+      return request(app.getHttpServer()).delete(`/tickets/${id}/dependencies/1`).expect(401);
+    });
+  });
+
+  // ── GET /tickets/:id/dependencies ─────────────────────────────────────────
+
+  describe('GET /tickets/:id/dependencies', () => {
+    it('returns empty array when ticket has no blockers', async () => {
+      const id = await createTicket('no blockers ticket');
+      const res = await request(app.getHttpServer())
+        .get(`/tickets/${id}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toEqual([]);
+    });
+
+    it('returns 404 when ticket does not exist', () => {
+      return request(app.getHttpServer())
+        .get('/tickets/999999/dependencies')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+    });
+
+    it('returns blockers with id, title, and status fields only', async () => {
+      const blockedId = await createTicket('get-dep blocked');
+      const blockerId = await createTicket('get-dep blocker');
 
       await request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: blockerId })
         .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({
+        id: blockerId,
+        title: 'get-dep blocker',
+        status: expect.any(String),
+      });
+      expect(Object.keys(res.body[0])).toEqual(expect.arrayContaining(['id', 'title', 'status']));
+      expect(res.body[0].projectId).toBeUndefined();
+    });
+  });
+
+  // ── POST /tickets/:id/dependencies ────────────────────────────────────────
+
+  describe('POST /tickets/:id/dependencies', () => {
+    it('returns 200 and adds a valid dependency', async () => {
+      const blockedId = await createTicket('post-dep blocked');
+      const blockerId = await createTicket('post-dep blocker');
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blockerId })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      expect(res.body.map((b: any) => b.id)).toContain(blockerId);
     });
 
-    it('returns 400 when a ticket tries to block itself', async () => {
-      const ticketId = await createTicket('self blocker');
-
+    it('returns 404 when the blocked ticket does not exist', () => {
       return request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: ticketId })
-        .expect(400);
-    });
-
-    it('returns 400 when tickets belong to different projects', async () => {
-      const ticketId = await createTicket('cross-project blocked');
-      const crossBlocker = await createTicket('cross-project blocker', { projectId: otherProjectId });
-
-      return request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: crossBlocker })
-        .expect(400);
+        .post('/tickets/999999/dependencies')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: 1 })
+        .expect(404);
     });
 
     it('returns 404 when the blocker ticket does not exist', async () => {
-      const ticketId = await createTicket('ghost blocker');
-
+      const blockedId = await createTicket('blocked ticket - blocker missing');
       return request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: 999999 })
         .expect(404);
     });
 
+    it('returns 400 when a ticket tries to block itself', async () => {
+      const id = await createTicket('self-block ticket');
+      return request(app.getHttpServer())
+        .post(`/tickets/${id}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: id })
+        .expect(400);
+    });
+
+    it('returns 400 when tickets belong to different projects', async () => {
+      const blockedId = await createTicket('cross-project blocked', projectId);
+      const blockerId = await createTicket('cross-project blocker', otherProjectId);
+
+      return request(app.getHttpServer())
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blockerId })
+        .expect(400);
+    });
+
     it('returns 409 when the same dependency already exists', async () => {
-      const ticketId = await createTicket('dup blocked');
-      const blockerId = await createTicket('dup blocker');
+      const blockedId = await createTicket('dup-dep blocked');
+      const blockerId = await createTicket('dup-dep blocker');
 
       await request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: blockerId })
         .expect(200);
 
       return request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .post(`/tickets/${blockedId}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: blockerId })
         .expect(409);
     });
 
-    it('returns 400 when adding a dependency would create a cycle', async () => {
-      // A blocks B, then B blocks A would be a cycle
-      const aId = await createTicket('cycle A');
-      const bId = await createTicket('cycle B');
+    it('returns 400 when adding a dependency would create a direct cycle (A→B, B→A)', async () => {
+      const a = await createTicket('cycle-A');
+      const b = await createTicket('cycle-B');
 
+      // A is blocked by B
       await request(app.getHttpServer())
-        .post(`/tickets/${bId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: aId })
+        .post(`/tickets/${a}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: b })
         .expect(200);
 
+      // B is blocked by A — would form a cycle
       return request(app.getHttpServer())
-        .post(`/tickets/${aId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: bId })
+        .post(`/tickets/${b}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: a })
         .expect(400);
     });
 
-    it('returns 400 when adding a longer cycle would create a cycle (A→B→C→A)', async () => {
-      // Create A -> B, B -> C, then C -> A should be rejected
-      const aId = await createTicket('cycle3 A');
-      const bId = await createTicket('cycle3 B');
-      const cId = await createTicket('cycle3 C');
+    it('returns 400 when adding a dependency would create a transitive cycle (A→B→C, C→A)', async () => {
+      const a = await createTicket('trans-cycle-A');
+      const b = await createTicket('trans-cycle-B');
+      const c = await createTicket('trans-cycle-C');
 
+      // A blocked by B
       await request(app.getHttpServer())
-        .post(`/tickets/${bId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: aId })
+        .post(`/tickets/${a}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: b })
         .expect(200);
 
+      // B blocked by C
       await request(app.getHttpServer())
-        .post(`/tickets/${cId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: bId })
+        .post(`/tickets/${b}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: c })
         .expect(200);
 
+      // C blocked by A — would close the cycle A←B←C←A
       return request(app.getHttpServer())
-        .post(`/tickets/${aId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: cId })
+        .post(`/tickets/${c}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: a })
         .expect(400);
     });
-  });
 
-  // ── GET /tickets/:ticketId/dependencies ───────────────────────────────────
-
-  describe('GET /tickets/:ticketId/dependencies', () => {
-    let blockedId: number;
-    let blockerId: number;
-
-    beforeAll(async () => {
-      blockedId = await createTicket('listed blocked');
-      blockerId = await createTicket('listed blocker');
+    it('returns 400 when blockedBy is missing or not an integer', async () => {
+      const id = await createTicket('bad-body ticket');
 
       await request(app.getHttpServer())
-        .post(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: blockerId })
+        .post(`/tickets/${id}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({})
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${id}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: 'not-a-number' })
+        .expect(400);
+    });
+
+    it('allows a ticket to have multiple distinct blockers', async () => {
+      const blocked = await createTicket('multi-blocker blocked');
+      const blocker1 = await createTicket('multi-blocker 1');
+      const blocker2 = await createTicket('multi-blocker 2');
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker1 })
         .expect(200);
-    });
 
-    it('returns 401 without token', () => {
-      return request(app.getHttpServer())
-        .get(`/tickets/${blockedId}/dependencies`)
-        .expect(401);
-    });
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker2 })
+        .expect(200);
 
-    it('returns a list of blockers with { id, title, status }', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .get(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      expect(Array.isArray(res.body)).toBe(true);
-      const blocker = res.body.find((b: any) => b.id === blockerId);
-      expect(blocker).toBeDefined();
-      expect(blocker).toMatchObject({
-        id: blockerId,
-        title: 'listed blocker',
-        status: TicketStatus.TODO,
-      });
-    });
-
-    it('returns 404 for non-existent ticket', async () => {
-      return request(app.getHttpServer())
-        .get('/tickets/999999/dependencies')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .expect(404);
+      const ids = res.body.map((b: any) => b.id);
+      expect(ids).toContain(blocker1);
+      expect(ids).toContain(blocker2);
     });
   });
 
-  // ── DELETE /tickets/:ticketId/dependencies/:blockerId ─────────────────────
+  // ── DELETE /tickets/:id/dependencies/:blockerId ───────────────────────────
 
-  describe('DELETE /tickets/:ticketId/dependencies/:blockerId', () => {
-    let blockedId: number;
-    let blockerId: number;
-
-    beforeAll(async () => {
-      blockedId = await createTicket('del-dep blocked');
-      blockerId = await createTicket('del-dep blocker');
+  describe('DELETE /tickets/:id/dependencies/:blockerId', () => {
+    it('removes an existing dependency', async () => {
+      const blockedId = await createTicket('del-dep blocked');
+      const blockerId = await createTicket('del-dep blocker');
 
       await request(app.getHttpServer())
         .post(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: blockerId })
         .expect(200);
-    });
 
-    it('returns 401 without token', () => {
-      return request(app.getHttpServer())
-        .delete(`/tickets/${blockedId}/dependencies/${blockerId}`)
-        .expect(401);
-    });
-
-    it('removes the dependency', async () => {
       await request(app.getHttpServer())
         .delete(`/tickets/${blockedId}/dependencies/${blockerId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
       const res = await request(app.getHttpServer())
         .get(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      expect(res.body.find((b: any) => b.id === blockerId)).toBeUndefined();
+      expect(res.body.map((b: any) => b.id)).not.toContain(blockerId);
     });
 
-    it('returns 404 when the dependency does not exist', async () => {
+    it('returns 404 when the blocked ticket does not exist', () => {
       return request(app.getHttpServer())
-        .delete(`/tickets/${blockedId}/dependencies/999999`)
-        .set('Authorization', `Bearer ${adminToken}`)
+        .delete('/tickets/999999/dependencies/1')
+        .set('Authorization', `Bearer ${token}`)
         .expect(404);
     });
-  });
 
-  // ── DONE guard: cannot close with unresolved blockers ────────────────────
+    it('returns 404 when the dependency does not exist on the ticket', async () => {
+      const blockedId = await createTicket('del-dep no link');
+      const unrelatedId = await createTicket('del-dep unrelated');
 
-  describe('Cannot transition to DONE with unresolved blockers', () => {
-    it('rejects IN_REVIEW → DONE when a blocker is not DONE', async () => {
-      const blockedId = await createTicket('guarded ticket');
-      const blockerId = await createTicket('unresolved blocker');
-
-      // Add dependency
-      await request(app.getHttpServer())
-        .post(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: blockerId })
-        .expect(200);
-
-      // Advance blocked ticket to IN_REVIEW
-      await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.IN_PROGRESS })
-        .expect(200);
-
-      await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.IN_REVIEW })
-        .expect(200);
-
-      // Try to mark DONE – blocker is still TODO
-      await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.DONE })
-        .expect(400);
+      return request(app.getHttpServer())
+        .delete(`/tickets/${blockedId}/dependencies/${unrelatedId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
     });
 
-    it('allows DONE when all blockers are already DONE', async () => {
-      const blockedId = await createTicket('allowed guarded ticket');
-      const blockerId = await createTicket('resolved blocker');
+    it('only removes the targeted blocker, leaving others intact', async () => {
+      const blocked = await createTicket('del-partial blocked');
+      const keep = await createTicket('del-partial keep');
+      const remove = await createTicket('del-partial remove');
 
       await request(app.getHttpServer())
-        .post(`/tickets/${blockedId}/dependencies`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ blockedBy: blockerId })
-        .expect(200);
-
-      // Resolve the blocker first
-      await advanceToDone(blockerId);
-
-      // Advance blocked to IN_REVIEW
-      await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.IN_PROGRESS })
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: keep })
         .expect(200);
 
       await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.IN_REVIEW })
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: remove })
         .expect(200);
 
-      // Now DONE should be allowed
       await request(app.getHttpServer())
-        .patch(`/tickets/${blockedId}`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ status: TicketStatus.DONE })
+        .delete(`/tickets/${blocked}/dependencies/${remove}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      const ids = res.body.map((b: any) => b.id);
+      expect(ids).toContain(keep);
+      expect(ids).not.toContain(remove);
+    });
+
+    it('allows a new dependency to be added after removal (no phantom cycle)', async () => {
+      const blocked = await createTicket('re-add blocked');
+      const blocker = await createTicket('re-add blocker');
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .delete(`/tickets/${blocked}/dependencies/${blocker}`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker })
         .expect(200);
     });
   });

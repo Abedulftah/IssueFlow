@@ -1,8 +1,11 @@
+import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MailService } from './mail.service';
 import * as nodemailer from 'nodemailer';
 
 jest.mock('nodemailer');
+beforeAll(() => jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {}));
+afterAll(() => jest.restoreAllMocks());
 
 describe('MailService', () => {
   let service: MailService;

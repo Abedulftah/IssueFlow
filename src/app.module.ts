@@ -17,9 +17,12 @@ import { AuditInterceptor } from './audit-log/audit.interceptor';
 import { MailModule } from './mail/mail.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 
+const isTestEnvironment =
+  process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
+    ...(isTestEnvironment ? [] : [ScheduleModule.forRoot()]),
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST ?? 'localhost',
@@ -39,7 +42,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
     DependenciesModule,
     AttachmentsModule,
     MailModule,
-    SchedulerModule,
+    ...(isTestEnvironment ? [] : [SchedulerModule]),
   ],
   controllers: [AppController],
   providers: [
