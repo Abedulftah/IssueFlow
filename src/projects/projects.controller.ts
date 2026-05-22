@@ -8,8 +8,10 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/user.entity';
@@ -59,20 +61,21 @@ export class ProjectsController {
   async update(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: UpdateProjectDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.projectsService.update(projectId, dto);
+    await this.projectsService.update(projectId, dto, (req.user as any)?.id);
   }
 
   @Delete(':projectId')
   @Roles(UserRole.ADMIN)
-  softDelete(@Param('projectId', ParseIntPipe) projectId: number) {
-    return this.projectsService.softDelete(projectId);
+  softDelete(@Param('projectId', ParseIntPipe) projectId: number, @Req() req: Request) {
+    return this.projectsService.softDelete(projectId, (req.user as any)?.id);
   }
 
   @Post(':projectId/restore')
   @HttpCode(200)
   @Roles(UserRole.ADMIN)
-  restore(@Param('projectId', ParseIntPipe) projectId: number) {
-    return this.projectsService.restore(projectId);
+  restore(@Param('projectId', ParseIntPipe) projectId: number, @Req() req: Request) {
+    return this.projectsService.restore(projectId, (req.user as any)?.id);
   }
 }

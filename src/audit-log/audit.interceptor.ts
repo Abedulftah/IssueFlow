@@ -15,15 +15,15 @@ export class AuditInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
-    const userId: string | undefined = request.user?.sub;
+    const userId: string | undefined = (request.user as any)?.id;
 
     if (userId) {
-      void this.dataSource.query('SET issueflow.current_user_id = $1', [userId]);
+      this.dataSource.query('SET issueflow.current_user_id = $1', [userId]).catch(() => {});
     }
 
     return next.handle().pipe(
       finalize(() => {
-        void this.dataSource.query("SET issueflow.current_user_id = ''");
+        this.dataSource.query("SET issueflow.current_user_id = ''").catch(() => {});
       }),
     );
   }

@@ -69,13 +69,13 @@ describe('UsersController', () => {
 
   it('update — delegates to service', async () => {
     service.update.mockResolvedValue({ id: 1, role: UserRole.ADMIN } as User);
-    await controller.update(1, { role: UserRole.ADMIN });
-    expect(service.update).toHaveBeenCalledWith(1, { role: UserRole.ADMIN });
+    await controller.update(1, { role: UserRole.ADMIN }, mockReq(1));
+    expect(service.update).toHaveBeenCalledWith(1, { role: UserRole.ADMIN }, 1);
   });
 
   it('remove — delegates to service', async () => {
     service.remove.mockResolvedValue(undefined);
-    await controller.remove(1);
-    expect(service.remove).toHaveBeenCalledWith(1);
+    await controller.remove(1, mockReq(1));
+    expect(service.remove).toHaveBeenCalledWith(1, 1);
   });
 });

@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -11,6 +12,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
@@ -47,15 +49,25 @@ export class UsersService {
       .getMany();
   }
 
-  async update(id: number, dto: UpdateUserDto): Promise<User> {
+  async update(id: number, dto: UpdateUserDto, userId?: number): Promise<User> {
     const user = await this.findOne(id);
     if (dto.fullName !== undefined) user.fullName = dto.fullName;
     if (dto.role !== undefined) user.role = dto.role;
-    return this.usersRepository.save(user);
+    return this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      return manager.getRepository(User).save(user);
+    });
   }
 
-  async remove(id: number): Promise<void> {
+  async remove(id: number, userId?: number): Promise<void> {
     const user = await this.findOne(id);
-    await this.usersRepository.remove(user);
+    await this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      await manager.getRepository(User).remove(user);
+    });
   }
 }

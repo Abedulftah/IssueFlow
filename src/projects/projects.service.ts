@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Not, Repository } from 'typeorm';
+import { DataSource, IsNull, Not, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { Project } from './project.entity';
 import { UsersService } from '../users/users.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -11,6 +12,7 @@ export class ProjectsService {
   constructor(
     @InjectRepository(Project)
     private readonly projectsRepository: Repository<Project>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly usersService: UsersService,
   ) {}
 
@@ -41,22 +43,37 @@ export class ProjectsService {
     });
   }
 
-  async update(id: number, dto: UpdateProjectDto): Promise<void> {
+  async update(id: number, dto: UpdateProjectDto, userId?: number): Promise<void> {
     const project = await this.findOne(id);
     if (dto.name !== undefined) project.name = dto.name;
     if (dto.description !== undefined) project.description = dto.description;
-    await this.projectsRepository.save(project);
+    await this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      await manager.getRepository(Project).save(project);
+    });
   }
 
-  async softDelete(id: number): Promise<void> {
+  async softDelete(id: number, userId?: number): Promise<void> {
     await this.findOne(id); // throws 404 if not found or already soft-deleted
-    await this.projectsRepository.softDelete(id);
+    await this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      await manager.getRepository(Project).softDelete(id);
+    });
   }
 
-  async restore(id: number): Promise<void> {
+  async restore(id: number, userId?: number): Promise<void> {
     const project = await this.projectsRepository.findOne({ where: { id }, withDeleted: true });
     if (!project) throw new NotFoundException(`Project ${id} not found`);
     if (!project.deletedAt) throw new BadRequestException('Project is not deleted');
-    await this.projectsRepository.restore(id);
+    await this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      await manager.getRepository(Project).restore(id);
+    });
   }
 }

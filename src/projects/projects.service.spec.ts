@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Project } from './project.entity';
 import { ProjectsService } from './projects.service';
 import { UsersService } from '../users/users.service';
@@ -15,24 +15,30 @@ describe('ProjectsService', () => {
   let usersService: jest.Mocked<UsersService>;
 
   beforeEach(async () => {
+    const repoValue = {
+      create: jest.fn(),
+      save: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn(),
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const dataSource = {
+      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
+        cb({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: () => repoValue,
+        }),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProjectsService,
-        {
-          provide: getRepositoryToken(Project),
-          useValue: {
-            create: jest.fn(),
-            save: jest.fn(),
-            find: jest.fn(),
-            findOne: jest.fn(),
-            softDelete: jest.fn().mockResolvedValue(undefined),
-            restore: jest.fn().mockResolvedValue(undefined),
-          },
-        },
-        {
-          provide: UsersService,
-          useValue: { findOne: jest.fn() },
-        },
+        { provide: getRepositoryToken(Project), useValue: repoValue },
+        { provide: DataSource, useValue: dataSource },
+        { provide: UsersService, useValue: { findOne: jest.fn() } },
       ],
     }).compile();
 

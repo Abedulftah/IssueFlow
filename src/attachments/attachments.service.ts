@@ -21,17 +21,17 @@ export class AttachmentsService {
     ticketId: number,
     file: Express.Multer.File,
   ): Promise<Attachment> {
-    await this.ticketsService.findOne(ticketId);
-
-    const attachment = this.attachmentRepo.create({
-      filename: file.originalname,
-      contentType: file.mimetype,
-      size: file.size,
-      storagePath: file.path,
-      ticketId,
-    });
-
     try {
+      await this.ticketsService.findOne(ticketId);
+
+      const attachment = this.attachmentRepo.create({
+        filename: file.originalname,
+        contentType: file.mimetype,
+        size: file.size,
+        storagePath: file.path,
+        ticketId,
+      });
+
       return await this.attachmentRepo.save(attachment);
     } catch (err) {
       try {

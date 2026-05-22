@@ -101,8 +101,9 @@ export class TicketsController {
   async update(
     @Param('ticketId', ParseIntPipe) ticketId: number,
     @Body() dto: UpdateTicketDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.ticketsService.update(ticketId, dto);
+    await this.ticketsService.update(ticketId, dto, (req.user as any)?.id);
   }
 
   @Delete(':ticketId')

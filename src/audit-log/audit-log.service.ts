@@ -82,7 +82,7 @@ export class AuditLogService implements OnModuleInit {
             TG_ARGV[0],
             v_entity_id,
             v_performed_by,
-            'USER',
+            (CASE WHEN v_performed_by = 'SYSTEM' THEN 'SYSTEM' ELSE 'USER' END)::"audit_logs_actor_enum",
             NOW()
           );
 

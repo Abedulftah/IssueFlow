@@ -28,7 +28,13 @@ export class SchedulerService {
 
   @Cron(process.env.ESCALATION_CRON ?? '*/5 * * * *')
   async runEscalation(): Promise<void> {
-    const tickets = await this.ticketsService.findOverdueForEscalation();
+    let tickets: Ticket[];
+    try {
+      tickets = await this.ticketsService.findOverdueForEscalation();
+    } catch (err) {
+      this.logger.error('Escalation query failed', err);
+      return;
+    }
 
     for (const ticket of tickets) {
       try {

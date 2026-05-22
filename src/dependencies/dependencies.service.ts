@@ -67,7 +67,14 @@ export class DependenciesService {
     await this.ticketsRepository.save(ticket);
   }
 
-  private async wouldCreateCycle(startId: number, targetId: number): Promise<boolean> {
+  private async wouldCreateCycle(
+    startId: number,
+    targetId: number,
+    visited = new Set<number>(),
+  ): Promise<boolean> {
+    if (visited.has(startId)) return false;
+    visited.add(startId);
+
     const ticket = await this.ticketsRepository.findOne({
       where: { id: startId },
       relations: ['blockers'],
@@ -76,7 +83,7 @@ export class DependenciesService {
 
     for (const blocker of ticket.blockers) {
       if (blocker.id === targetId) return true;
-      if (await this.wouldCreateCycle(blocker.id, targetId)) return true;
+      if (await this.wouldCreateCycle(blocker.id, targetId, visited)) return true;
     }
     return false;
   }

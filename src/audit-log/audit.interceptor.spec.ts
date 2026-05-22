@@ -7,7 +7,7 @@ const makeContext = (userId?: string): ExecutionContext =>
   ({
     switchToHttp: jest.fn().mockReturnValue({
       getRequest: jest.fn().mockReturnValue({
-        user: userId ? { sub: userId } : undefined,
+        user: userId ? { id: userId } : undefined,
       }),
     }),
   } as unknown as ExecutionContext);

@@ -105,7 +105,7 @@ export class TicketsService {
     return saved;
   }
 
-  async update(id: number, dto: UpdateTicketDto): Promise<Ticket> {
+  async update(id: number, dto: UpdateTicketDto, userId?: number): Promise<Ticket> {
     const ticket = await this.findOne(id); // assertProjectActive called inside findOne
 
     if (ticket.status === TicketStatus.DONE) {
@@ -121,7 +121,6 @@ export class TicketsService {
       }
 
       if (dto.status === TicketStatus.DONE) {
-        // TypeORM automatically excludes soft-deleted blockers from this relation load
         const withBlockers = await this.ticketsRepository.findOne({
           where: { id },
           relations: ['blockers'],
@@ -152,7 +151,12 @@ export class TicketsService {
       ...(dto.dueDate !== undefined && { dueDate: new Date(dto.dueDate) }),
     });
 
-    const saved = await this.ticketsRepository.save(ticket);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      if (userId !== undefined) {
+        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
+      }
+      return manager.getRepository(Ticket).save(ticket);
+    });
 
     return saved;
   }
@@ -249,6 +253,7 @@ export class TicketsService {
 
         const rawAssigneeId = row['assigneeId'] ?? '';
         let assigneeId: number | null = rawAssigneeId ? parseInt(rawAssigneeId, 10) : null;
+        const autoAssigned = !assigneeId;
         if (!assigneeId) {
           assigneeId = await this.autoAssign(pid);
         }
@@ -267,7 +272,17 @@ export class TicketsService {
           dueDate,
           isOverdue: false,
         });
-        await this.ticketsRepository.save(ticket);
+        const saved = await this.ticketsRepository.save(ticket);
+
+        if (autoAssigned && assigneeId !== null) {
+          await this.auditLogService.record({
+            action: 'AUTO_ASSIGN',
+            entityType: 'TICKET',
+            entityId: String(saved.id),
+            performedBy: 'SYSTEM',
+            actor: ActorType.SYSTEM,
+          });
+        }
 
         created++;
       } catch (err) {

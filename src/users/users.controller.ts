@@ -9,7 +9,9 @@ import {
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { UsersService } from './users.service';
 import { CommentsService } from '../comments/comments.service';
@@ -54,12 +56,13 @@ export class UsersController {
   async update(
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: UpdateUserDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.usersService.update(userId, dto);
+    await this.usersService.update(userId, dto, (req.user as any)?.id);
   }
 
   @Delete(':userId')
-  remove(@Param('userId', ParseIntPipe) userId: number) {
-    return this.usersService.remove(userId);
+  remove(@Param('userId', ParseIntPipe) userId: number, @Req() req: Request) {
+    return this.usersService.remove(userId, (req.user as any)?.id);
   }
 }

@@ -145,8 +145,8 @@ describe('TicketsController', () => {
   describe('update', () => {
     it('calls service update and returns void', async () => {
       service.update.mockResolvedValue(undefined);
-      await controller.update(1, { title: 'Updated' });
-      expect(service.update).toHaveBeenCalledWith(1, { title: 'Updated' });
+      await controller.update(1, { title: 'Updated' }, mockReq(1));
+      expect(service.update).toHaveBeenCalledWith(1, { title: 'Updated' }, 1);
     });
   });
 

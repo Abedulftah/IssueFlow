@@ -1,9 +1,11 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, UserRole } from './user.entity';
 import { UsersService } from './users.service';
+
 const mockRepo = () => ({
   findOne: jest.fn(),
   find: jest.fn(),
@@ -17,10 +19,21 @@ describe('UsersService', () => {
   let repo: ReturnType<typeof mockRepo>;
 
   beforeEach(async () => {
+    const repoValue = mockRepo();
+    const dataSource = {
+      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
+        cb({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: () => repoValue,
+        }),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
-        { provide: getRepositoryToken(User), useFactory: mockRepo },
+        { provide: getRepositoryToken(User), useValue: repoValue },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
