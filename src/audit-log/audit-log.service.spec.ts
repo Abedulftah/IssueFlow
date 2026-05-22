@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { AuditLogService } from './audit-log.service';
 import { AuditLog } from './entities/audit-log.entity';
 import { ActorType } from './enums/actor-type.enum';
@@ -10,6 +11,16 @@ const mockRepo = () => ({
   find: jest.fn(),
 });
 
+const mockQueryRunner = {
+  connect: jest.fn().mockResolvedValue(undefined),
+  query: jest.fn().mockResolvedValue(undefined),
+  release: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockDataSource = {
+  createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+};
+
 describe('AuditLogService', () => {
   let service: AuditLogService;
   let repo: ReturnType<typeof mockRepo>;
@@ -19,6 +30,7 @@ describe('AuditLogService', () => {
       providers: [
         AuditLogService,
         { provide: getRepositoryToken(AuditLog), useFactory: mockRepo },
+        { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
 
