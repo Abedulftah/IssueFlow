@@ -5,14 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { Ticket } from '../tickets/ticket.entity';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 @Injectable()
 export class DependenciesService {
   constructor(
     @InjectRepository(Ticket)
     private readonly ticketsRepository: Repository<Ticket>,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
   async getDependencies(blockedId: number): Promise<Ticket[]> {
@@ -50,7 +53,9 @@ export class DependenciesService {
     }
 
     blockedTicket.blockers.push(blockerTicket);
-    await this.ticketsRepository.save(blockedTicket);
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Ticket).save(blockedTicket);
+    });
   }
 
   async removeDependency(blockedId: number, blockerId: number): Promise<void> {
@@ -64,7 +69,9 @@ export class DependenciesService {
     if (idx === -1) throw new NotFoundException('Dependency not found');
 
     ticket.blockers.splice(idx, 1);
-    await this.ticketsRepository.save(ticket);
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Ticket).save(ticket);
+    });
   }
 
   private async wouldCreateCycle(

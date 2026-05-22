@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { User } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 @Injectable()
 export class UsersService {
@@ -24,7 +25,9 @@ export class UsersService {
     }
     const passwordHash = await bcrypt.hash(dto.password ?? 'secret', 10);
     const user = this.usersRepository.create({ ...dto, passwordHash });
-    return this.usersRepository.save(user);
+    return withCurrentUserTransaction(this.dataSource, (manager) =>
+      manager.getRepository(User).save(user),
+    );
   }
 
   findAll(): Promise<User[]> {
@@ -49,24 +52,18 @@ export class UsersService {
       .getMany();
   }
 
-  async update(id: number, dto: UpdateUserDto, userId?: number): Promise<User> {
+  async update(id: number, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
     if (dto.fullName !== undefined) user.fullName = dto.fullName;
     if (dto.role !== undefined) user.role = dto.role;
-    return this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    return withCurrentUserTransaction(this.dataSource, (manager) => {
       return manager.getRepository(User).save(user);
     });
   }
 
-  async remove(id: number, userId?: number): Promise<void> {
+  async remove(id: number): Promise<void> {
     const user = await this.findOne(id);
-    await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(User).remove(user);
     });
   }

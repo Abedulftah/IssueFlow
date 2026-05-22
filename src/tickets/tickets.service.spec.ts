@@ -473,41 +473,6 @@ describe('TicketsService', () => {
     });
   });
 
-  describe('create with userId', () => {
-    it('sets session userId in the transaction when userId is provided', async () => {
-      repo.query.mockResolvedValue([{ userId: '5' }]);
-      repo.create.mockReturnValue(mockTicket());
-      repo.save.mockImplementation((t) => Promise.resolve({ ...t, id: 20, assigneeId: 5 }));
-
-      const ticket = await service.create(
-        { title: 'T', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: 1 },
-        42,
-      );
-      expect(ticket).toBeDefined();
-    });
-  });
-
-  describe('update with userId', () => {
-    it('sets session userId in the transaction when userId is provided', async () => {
-      const ticket = mockTicket({ status: TicketStatus.TODO });
-      repo.findOne.mockResolvedValue(ticket);
-      repo.save.mockResolvedValue({ ...ticket, title: 'Updated' });
-
-      const result = await service.update(1, { title: 'Updated' }, 7);
-      expect(result.title).toBe('Updated');
-    });
-  });
-
-  describe('softDelete with userId', () => {
-    it('sets session userId in the transaction when userId is provided', async () => {
-      const ticket = mockTicket({ status: TicketStatus.TODO });
-      repo.findOne.mockResolvedValue(ticket);
-
-      await expect(service.softDelete(1, 3)).resolves.toBeUndefined();
-      expect(repo.softDelete).toHaveBeenCalledWith(1);
-    });
-  });
-
   describe('findOverdueForEscalation', () => {
     it('returns overdue tickets via query builder', async () => {
       const tickets = [mockTicket({ dueDate: new Date(Date.now() - 86400_000) })];

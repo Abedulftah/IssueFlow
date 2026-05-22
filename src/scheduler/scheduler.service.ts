@@ -48,13 +48,6 @@ export class SchedulerService {
         }
 
         await this.ticketRepo.save(ticket);
-        await this.auditLogService.record({
-          action: 'ESCALATE',
-          entityType: 'TICKET',
-          entityId: String(ticket.id),
-          performedBy: 'SYSTEM',
-          actor: ActorType.SYSTEM,
-        });
       } catch (err) {
         this.logger.error(`Escalation failed for ticket ${ticket.id}`, err);
       }

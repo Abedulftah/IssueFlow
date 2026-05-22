@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { AttachmentsService } from './attachments.service';
 import { Attachment } from './attachment.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -39,10 +40,21 @@ describe('AttachmentsService', () => {
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    const repoValue = mockRepo();
+    const dataSource = {
+      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
+        cb({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: () => repoValue,
+        }),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AttachmentsService,
-        { provide: getRepositoryToken(Attachment), useFactory: mockRepo },
+        { provide: getRepositoryToken(Attachment), useValue: repoValue },
+        { provide: DataSource, useValue: dataSource },
         { provide: TicketsService, useFactory: mockTicketsService },
       ],
     }).compile();

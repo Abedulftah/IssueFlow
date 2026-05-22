@@ -67,9 +67,7 @@ describe('SchedulerService', () => {
 
       expect(ticket.priority).toBe(TicketPriority.MEDIUM);
       expect(ticketRepo.save).toHaveBeenCalledWith(ticket);
-      expect(auditLogService.record).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'ESCALATE', actor: ActorType.SYSTEM }),
-      );
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('promotes MEDIUM priority to HIGH', async () => {
@@ -129,7 +127,7 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticketRepo.save).toHaveBeenCalledTimes(2);
-      expect(auditLogService.record).toHaveBeenCalledTimes(1);
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
   });
 });

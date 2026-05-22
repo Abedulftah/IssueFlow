@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { TicketsController } from './tickets.controller';
 import { TicketsService } from './tickets.service';
 import { TicketStatus, TicketPriority, TicketType } from './enums';
@@ -28,8 +28,6 @@ const makeTicket = (overrides: Partial<Ticket> = {}): Ticket =>
     projectId: 1,
     ...overrides,
   } as Ticket);
-
-const mockReq = (userId = 1) => ({ user: { id: userId } } as unknown as Request);
 
 describe('TicketsController', () => {
   let controller: TicketsController;
@@ -130,14 +128,14 @@ describe('TicketsController', () => {
   });
 
   describe('create', () => {
-    it('delegates to service with dto and user id', async () => {
+    it('delegates to service with dto', async () => {
       const ticket = makeTicket();
       service.create.mockResolvedValue(ticket);
       const dto = { title: 'T', projectId: 1, type: TicketType.TECHNICAL, priority: TicketPriority.MEDIUM };
 
-      const result = await controller.create(dto as any, mockReq(2));
+      const result = await controller.create(dto as any);
 
-      expect(service.create).toHaveBeenCalledWith(dto, 2);
+      expect(service.create).toHaveBeenCalledWith(dto);
       expect(result).toBe(ticket);
     });
   });
@@ -145,18 +143,18 @@ describe('TicketsController', () => {
   describe('update', () => {
     it('calls service update and returns void', async () => {
       service.update.mockResolvedValue(undefined);
-      await controller.update(1, { title: 'Updated' }, mockReq(1));
-      expect(service.update).toHaveBeenCalledWith(1, { title: 'Updated' }, 1);
+      await controller.update(1, { title: 'Updated' });
+      expect(service.update).toHaveBeenCalledWith(1, { title: 'Updated' });
     });
   });
 
   describe('softDelete', () => {
-    it('delegates to service with ticketId and user id', async () => {
+    it('delegates to service with ticketId', async () => {
       service.softDelete.mockResolvedValue(undefined);
 
-      await controller.softDelete(1, mockReq(3));
+      await controller.softDelete(1);
 
-      expect(service.softDelete).toHaveBeenCalledWith(1, 3);
+      expect(service.softDelete).toHaveBeenCalledWith(1);
     });
   });
 

@@ -167,7 +167,7 @@ describe('Ticket Auto-Escalation (e2e)', () => {
     expect(res.body.isOverdue).toBe(true);
 
     const auditEntries = await auditRepo.find({
-      where: { action: 'ESCALATE', entityId: String(id) },
+      where: { action: 'UPDATE', entityId: String(id) },
     });
     expect(auditEntries).toHaveLength(1);
   });
@@ -263,12 +263,12 @@ describe('Ticket Auto-Escalation (e2e)', () => {
     await schedulerService.runEscalation();
 
     const res = await request(app.getHttpServer())
-      .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=ESCALATE`)
+      .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=UPDATE`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
     expect(res.body.length).toBeGreaterThanOrEqual(1);
-    expect(res.body[0].action).toBe('ESCALATE');
+    expect(res.body[0].action).toBe('UPDATE');
     expect(res.body[0].actor).toBe('SYSTEM');
     expect(res.body[0].entityId).toBe(id);
   });
@@ -282,7 +282,7 @@ describe('Ticket Auto-Escalation (e2e)', () => {
     await schedulerService.runEscalation();
 
     const res = await request(app.getHttpServer())
-      .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=ESCALATE`)
+      .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=UPDATE`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 

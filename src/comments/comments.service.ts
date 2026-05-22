@@ -15,6 +15,9 @@ import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
 import { User } from '../users/user.entity';
 import { extractMentions } from './mentions.util';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 @Injectable()
 export class CommentsService {
@@ -23,6 +26,7 @@ export class CommentsService {
     private readonly commentsRepository: Repository<Comment>,
     @InjectRepository(CommentMention)
     private readonly mentionRepository: Repository<CommentMention>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly ticketsService: TicketsService,
     private readonly usersService: UsersService,
     private readonly mailService: MailService,
@@ -43,21 +47,29 @@ export class CommentsService {
 
     const usernames = extractMentions(dto.content);
     const mentionedUsers = await this.resolveMentions(usernames);
+    let newlyAddedMentions: User[] = [];
 
     const comment = this.commentsRepository.create({
       ticketId,
       authorId: dto.authorId,
       content: dto.content,
     });
-    const saved = await this.commentsRepository.save(comment);
+    const saved = await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      const savedComment = await manager.getRepository(Comment).save(comment);
 
-    if (mentionedUsers.length) {
-      await this.mentionRepository.save(
-        mentionedUsers.map((u) =>
-          this.mentionRepository.create({ commentId: saved.id, userId: u.id }),
-        ),
-      );
-    }
+      if (mentionedUsers.length) {
+        await manager.getRepository(CommentMention).save(
+          mentionedUsers.map((u) =>
+            manager.getRepository(CommentMention).create({
+              commentId: savedComment.id,
+              userId: u.id,
+            }),
+          ),
+        );
+      }
+
+      return savedComment;
+    });
 
     saved.mentionedUsers = mentionedUsers.map((u) => ({
       id: u.id,
@@ -84,34 +96,45 @@ export class CommentsService {
 
     const usernames = extractMentions(dto.content);
     const mentionedUsers = await this.resolveMentions(usernames);
+    let newlyAddedMentions: User[] = [];
 
     comment.content = dto.content;
     let saved: Comment;
     try {
-      saved = await this.commentsRepository.save(comment);
+      saved = await withCurrentUserTransaction(this.dataSource, async (manager) => {
+        const savedComment = await manager.getRepository(Comment).save(comment);
+
+        const existing = await manager.getRepository(CommentMention).find({
+          where: { commentId },
+        });
+        const existingUserIds = new Set(existing.map((m) => m.userId));
+        const newUserIds = new Set(mentionedUsers.map((u) => u.id));
+
+        const toAdd = mentionedUsers.filter((u) => !existingUserIds.has(u.id));
+        const toRemove = existing.filter((m) => !newUserIds.has(m.userId));
+        newlyAddedMentions = toAdd;
+
+        if (toAdd.length) {
+          await manager.getRepository(CommentMention).save(
+            toAdd.map((u) =>
+              manager.getRepository(CommentMention).create({
+                commentId,
+                userId: u.id,
+              }),
+            ),
+          );
+        }
+        if (toRemove.length) {
+          await manager.getRepository(CommentMention).remove(toRemove);
+        }
+
+        return savedComment;
+      });
     } catch (err) {
       if (err instanceof OptimisticLockVersionMismatchError) {
         throw new ConflictException('Comment was modified by another request');
       }
       throw err;
-    }
-
-    const existing = await this.mentionRepository.find({ where: { commentId } });
-    const existingUserIds = new Set(existing.map((m) => m.userId));
-    const newUserIds = new Set(mentionedUsers.map((u) => u.id));
-
-    const toAdd = mentionedUsers.filter((u) => !existingUserIds.has(u.id));
-    const toRemove = existing.filter((m) => !newUserIds.has(m.userId));
-
-    if (toAdd.length) {
-      await this.mentionRepository.save(
-        toAdd.map((u) =>
-          this.mentionRepository.create({ commentId, userId: u.id }),
-        ),
-      );
-    }
-    if (toRemove.length) {
-      await this.mentionRepository.remove(toRemove);
     }
 
     saved.mentionedUsers = mentionedUsers.map((u) => ({
@@ -120,8 +143,8 @@ export class CommentsService {
       fullName: u.fullName,
     }));
 
-    if (toAdd.length) {
-      this.dispatchMentionEmails(toAdd, comment.authorId, ticketId, dto.content);
+    if (newlyAddedMentions.length) {
+      this.dispatchMentionEmails(newlyAddedMentions, comment.authorId, ticketId, dto.content);
     }
 
     return saved;
@@ -130,7 +153,9 @@ export class CommentsService {
   async remove(ticketId: number, commentId: number): Promise<void> {
     await this.ticketsService.findOne(ticketId);
     const comment = await this.findComment(ticketId, commentId);
-    await this.commentsRepository.remove(comment);
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Comment).remove(comment);
+    });
   }
 
   async getMentionsForUser(

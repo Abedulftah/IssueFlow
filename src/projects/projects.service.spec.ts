@@ -129,14 +129,6 @@ describe('ProjectsService', () => {
       expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({ name: 'New', description: 'Keep' }));
     });
 
-    it('sets session userId when userId is provided', async () => {
-      const project = mockProject();
-      repo.findOne.mockResolvedValue(project);
-      repo.save.mockResolvedValue(project);
-
-      await service.update(1, { name: 'Updated' }, 7);
-      expect(repo.save).toHaveBeenCalled();
-    });
   });
 
   describe('softDelete', () => {
@@ -157,11 +149,6 @@ describe('ProjectsService', () => {
       expect(repo.softDelete).toHaveBeenCalledTimes(1);
     });
 
-    it('sets session userId when userId is provided', async () => {
-      repo.findOne.mockResolvedValue(mockProject());
-      await service.softDelete(1, 5);
-      expect(repo.softDelete).toHaveBeenCalledWith(1);
-    });
   });
 
   describe('restore', () => {
@@ -181,10 +168,5 @@ describe('ProjectsService', () => {
       expect(repo.restore).toHaveBeenCalledWith(1);
     });
 
-    it('sets session userId when userId is provided', async () => {
-      repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
-      await service.restore(1, 3);
-      expect(repo.restore).toHaveBeenCalledWith(1);
-    });
   });
 });

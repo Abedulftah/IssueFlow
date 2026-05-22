@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { OptimisticLockVersionMismatchError } from 'typeorm';
+import { DataSource, OptimisticLockVersionMismatchError } from 'typeorm';
 import { CommentsService } from './comments.service';
 import { Comment } from './comment.entity';
 import { CommentMention } from './comment-mention.entity';
@@ -45,12 +45,25 @@ describe('CommentsService', () => {
       findByUsernames: jest.fn().mockResolvedValue([]),
     };
     mailService = { sendMentionNotification: jest.fn().mockResolvedValue(undefined) };
+    const dataSource = {
+      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
+        cb({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: (entity: unknown) => {
+            if (entity === Comment) return repo;
+            if (entity === CommentMention) return mentionRepo;
+            return repo;
+          },
+        }),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CommentsService,
         { provide: getRepositoryToken(Comment), useValue: repo },
         { provide: getRepositoryToken(CommentMention), useValue: mentionRepo },
+        { provide: DataSource, useValue: dataSource },
         { provide: TicketsService, useValue: ticketsService },
         { provide: UsersService, useValue: usersService },
         { provide: MailService, useValue: mailService },

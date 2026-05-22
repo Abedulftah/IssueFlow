@@ -28,7 +28,7 @@ Removed `password` from `UpdateUserDto` and all references to it in the update f
 ---
 
 ### Prompt 3 — Default password
-> Not random password or null, make a default password "secret" but hashed also.
+> Not random password or null, make a default password "secret".
 
 **What the model did:**  
 Updated proposal, design, spec, and tasks so that `POST /users` without a `password` field stores `bcrypt.hash("secret", 10)` instead of `null`.
@@ -476,72 +476,27 @@ Identified 9 tasks already complete from prior work (entity columns, DTO fields,
 
 ---
 
-## Feature: 4.5 E2E Test Framework & Suite Expansion
+## Feature: 3.8 Auto Assignment to Users by Workload
 
-**Model used for this section:** Claude Opus 4.7 (`claude-opus-4-7`)
-
-### Prompt 42 — Audit and expand the E2E test framework
-> You are an expert Senior QA Automation Engineer and a NestJS Backend Architect.
-> Your task is to perform a comprehensive E2E testing framework audit and expansion for the IssueFlow project.
->
-> Task A — Scalable test folder structure for test/
-> Task B — Reusable test setup utility (test-app.bootstrap.ts) with NestJS lifecycle management, TRUNCATE-based DB isolation via TypeORM DataSource, and JWT auth helpers
-> Task C — Two reference suites: a README user journey (Create→Read→Update→Delete) and a multipart Multer file upload suite
->
-> Ground truth: README.md (API contract) and the requirements PDF.
-> Fix any implementation that deviates from README.md.
-> Do NOT upgrade any libraries.
+### Prompt 42 — Propose auto-assignment change
+> /opsx:propose 3.8 Auto Assignment to Users by Workload
+> When a ticket is created without an explicit assigneeId, the system automatically selects the least-loaded DEVELOPER in the project.
+> Features: [full feature list from PDF]
+> - focus on integration tests.
 
 **What the model did:**
-Asked four clarifying questions before starting:
-1. Nest 10 vs Nest 11 mismatch — user said "Build framework for current Nest 10 / Express 4"
-2. Existing 10 e2e specs — user said "Audit + refactor in place"
-3. DB isolation strategy — user said "TRUNCATE … RESTART IDENTITY CASCADE between tests"
-4. Run scope — user said "Plan + reference implementation only"
-
-Generated the complete test infrastructure:
-- `test/support/test-app.bootstrap.ts` — `TestAppContext` (app, moduleRef, dataSource) with `bootstrapTestApp()` and `closeTestApp()`; applies global `ValidationPipe` + `ClassSerializerInterceptor`; calls `app.enableShutdownHooks()` so ScheduleModule cron timers are cleaned up after tests.
-- `test/support/db-reset.helper.ts` — `resetDatabase(dataSource)` using `DataSource.entityMetadatas` to build a dynamic `TRUNCATE TABLE … RESTART IDENTITY CASCADE` — no hardcoded table list.
-- `test/support/auth.helper.ts` — `seedAndLogin()` returning `AuthSession { id, username, token, authHeader }` for zero-boilerplate JWT header injection (`.set(admin.authHeader)`).
-- `test/support/factories/user.factory.ts` — `makeUserPayload()` with counter+timestamp unique suffix.
-- `test/support/factories/project.factory.ts` — `makeProjectPayload(ownerId)`.
-- `test/support/factories/ticket.factory.ts` — `makeTicketPayload(projectId)`.
-- `test/support/factories/file.factory.ts` — `fixtures.tinyPngPath`, `readFixture()`, `buildOversizedBuffer(11)`.
-- `test/fixtures/tiny.png` — real 67-byte PNG binary (generated via Node hex buffer).
-- `test/fixtures/tiny.txt` — plain text fixture file.
-- `test/e2e/users.crud.journey.e2e-spec.ts` — 12 tests: POST shape, GET all/one, 404, POST /users/update/:userId, DELETE→404, ValidationPipe 400 cases, full Create→Read→Update→Delete journey.
-- `test/e2e/attachments.upload.e2e-spec.ts` — 9 tests: upload from fixture path, upload from Buffer, text/plain, 400 bad MIME, 400 oversized (11 MB), 401 no JWT, 404 unknown ticket, upload→delete end-to-end.
+Read `README.md` and `CLAUDE.md` for the §3.8 API contract. Generated `proposal.md`, `design.md`, `specs/auto-assignment/spec.md`, `specs/project-workload/spec.md`, and `tasks.md` via `/opsx:propose`. Initially restricted candidates to DEVELOPERs who already had tickets in the project (inferred from the CLAUDE.md project-membership constraint). Documented 5 design decisions: LEFT JOIN query strategy (no N+1), logic placed in `TicketsService.autoAssignTicket()`, per-project workload counting, `GET /projects/:projectId/workload` placed in `ProjectsController` with `TicketsService` delegated via `forwardRef`, and integration-test-first approach with real DB.
 
 ---
 
-### Prompt 43 — Fix status codes and migrate all existing e2e specs
-> 1. do not do upgrade.
-> 2. if they check success then yes. stick to the readme file.
-> 3. do the recommended.
-> 4. do the recommended.
-> 5. don't update any library use what is there.
-> clean up the test files. and check if everything passes
+### Prompt 45 — Implement auto-assignment
+> /opsx:apply auto-assign--by-workload
 
 **What the model did:**
-Fixed all POST controllers to return 200 OK per README (NestJS defaults POST to 201):
-- `auth.controller.ts` — added `@HttpCode(200)` to `login` and `logout`
-- `users.controller.ts` — added `@HttpCode(200)` to `create` and `update`
-- `projects.controller.ts` — added `@HttpCode(200)` to `create` and `restore`
-- `tickets.controller.ts` — added `@HttpCode(200)` to `create` and `restore`
-- `comments.controller.ts` — added `@HttpCode(200)` to `create`
-- `dependencies.controller.ts` — added `@HttpCode(200)` to `addDependency`
-- `attachments.controller.ts` — added `@HttpCode(200)` to `upload`
-
-Migrated all 11 existing e2e specs to the new bootstrap/reset helpers — replaced `Test.createTestingModule` + old `clearDatabase` helper with `bootstrapTestApp`, `closeTestApp`, `resetDatabase`; changed all `.expect(201)` to `.expect(200)`.
-
-Deleted legacy `test/helpers/db.helper.ts` and empty `test/helpers/` directory.
-
-Fixed pre-existing unit test failure in `src/tickets/tickets.service.spec.ts` — `TicketsService` constructor requires `@InjectDataSource() dataSource: DataSource` but the spec had no DataSource mock; added a `dataSource` mock with a `transaction` stub that calls the callback with a minimal entity manager.
-
-Final results:
-- Unit tests: 13 suites, **122 passed**, 0 failed
-- E2E tests: 13 suites, **185 passed**, 1 skipped, 0 failed
-
----
+Found that tasks 1.1–2.1 were already implemented in prior work (the `autoAssign()` raw SQL method and `AUTO_ASSIGN` audit log entry existed in `TicketsService.create()`). Implemented remaining tasks:
+- Added `getProjectWorkload(projectId: number)` to `TicketsService` using a LEFT JOIN over all DEVELOPER users, counting non-DONE non-deleted tickets per project, sorted ascending.
+- Added `GET /projects/:projectId/workload` route to `ProjectsController` (with `projectsService.findOne()` 404 guard), injecting `TicketsService` via constructor.
+- Added `forwardRef(() => TicketsModule)` import to `ProjectsModule` to resolve the circular dependency.
+- Created `test/auto-assign.e2e-spec.ts` with 14 integration tests covering all spec scenarios. Fixed three initially failing tests (6.2, 6.3, 6.7) by adding an `ensureAllDevsHaveTicketInProject()` helper that gives all existing DEVELOPERs a ticket before introducing the "target" DEVELOPER — making the assignment deterministic despite a shared global DEVELOPER pool across tests. All 14 tests pass.
 
 <!-- Add a new entry for each feature / prompt as you continue building -->

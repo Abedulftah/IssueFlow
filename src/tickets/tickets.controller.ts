@@ -10,12 +10,10 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { Response } from 'express';
@@ -93,22 +91,21 @@ export class TicketsController {
 
   @Post()
   @HttpCode(200)
-  create(@Body() dto: CreateTicketDto, @Req() req: Request) {
-    return this.ticketsService.create(dto, (req.user as any)?.id);
+  create(@Body() dto: CreateTicketDto) {
+    return this.ticketsService.create(dto);
   }
 
   @Patch(':ticketId')
   async update(
     @Param('ticketId', ParseIntPipe) ticketId: number,
     @Body() dto: UpdateTicketDto,
-    @Req() req: Request,
   ): Promise<void> {
-    await this.ticketsService.update(ticketId, dto, (req.user as any)?.id);
+    await this.ticketsService.update(ticketId, dto);
   }
 
   @Delete(':ticketId')
-  softDelete(@Param('ticketId', ParseIntPipe) ticketId: number, @Req() req: Request) {
-    return this.ticketsService.softDelete(ticketId, (req.user as any)?.id);
+  softDelete(@Param('ticketId', ParseIntPipe) ticketId: number) {
+    return this.ticketsService.softDelete(ticketId);
   }
 
   @Post(':ticketId/restore')

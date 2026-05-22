@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Attachment } from './attachment.entity';
 import { TicketsService } from '../tickets/tickets.service';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 const UPLOAD_DIR = './uploads/attachments';
 
@@ -12,6 +14,7 @@ export class AttachmentsService {
   constructor(
     @InjectRepository(Attachment)
     private readonly attachmentRepo: Repository<Attachment>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly ticketsService: TicketsService,
   ) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -32,7 +35,9 @@ export class AttachmentsService {
         ticketId,
       });
 
-      return await this.attachmentRepo.save(attachment);
+      return await withCurrentUserTransaction(this.dataSource, (manager) =>
+        manager.getRepository(Attachment).save(attachment),
+      );
     } catch (err) {
       try {
         fs.unlinkSync(file.path);
@@ -56,6 +61,8 @@ export class AttachmentsService {
       if (err.code !== 'ENOENT') throw err;
     }
 
-    await this.attachmentRepo.delete(id);
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Attachment).delete(id);
+    });
   }
 }

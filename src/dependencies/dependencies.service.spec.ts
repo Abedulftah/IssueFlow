@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { DependenciesService } from './dependencies.service';
 import { Ticket } from '../tickets/ticket.entity';
 import { TicketStatus, TicketPriority, TicketType } from '../tickets/enums';
@@ -35,11 +36,20 @@ describe('DependenciesService', () => {
 
   beforeEach(async () => {
     repo = { findOne: jest.fn(), save: jest.fn().mockResolvedValue(undefined) };
+    const dataSource = {
+      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
+        cb({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: () => repo,
+        }),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DependenciesService,
         { provide: getRepositoryToken(Ticket), useValue: repo },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 

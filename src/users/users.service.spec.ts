@@ -158,14 +158,6 @@ describe('UsersService', () => {
       expect(result.role).toBe(UserRole.ADMIN);
     });
 
-    it('sets session userId when userId is provided', async () => {
-      const user = { id: 1, role: UserRole.DEVELOPER, fullName: 'John' } as User;
-      repo.findOne.mockResolvedValue(user);
-      repo.save.mockResolvedValue({ ...user, role: UserRole.ADMIN });
-
-      const result = await service.update(1, { role: UserRole.ADMIN }, 42);
-      expect(result.role).toBe(UserRole.ADMIN);
-    });
   });
 
   describe('remove', () => {
@@ -181,15 +173,6 @@ describe('UsersService', () => {
     it('throws NotFoundException when user does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
       await expect(service.remove(999)).rejects.toThrow(NotFoundException);
-    });
-
-    it('sets session userId when userId is provided', async () => {
-      const user = { id: 1 } as User;
-      repo.findOne.mockResolvedValue(user);
-      repo.remove.mockResolvedValue(undefined);
-
-      await expect(service.remove(1, 99)).resolves.toBeUndefined();
-      expect(repo.remove).toHaveBeenCalledWith(user);
     });
   });
 });

@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { Request } from 'express';
 import { User, UserRole } from './user.entity';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
@@ -12,8 +11,6 @@ const mockService = () => ({
   update: jest.fn(),
   remove: jest.fn(),
 });
-
-const mockReq = (userId: number) => ({ user: { id: userId } } as unknown as Request);
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -69,13 +66,13 @@ describe('UsersController', () => {
 
   it('update — delegates to service', async () => {
     service.update.mockResolvedValue({ id: 1, role: UserRole.ADMIN } as User);
-    await controller.update(1, { role: UserRole.ADMIN }, mockReq(1));
-    expect(service.update).toHaveBeenCalledWith(1, { role: UserRole.ADMIN }, 1);
+    await controller.update(1, { role: UserRole.ADMIN });
+    expect(service.update).toHaveBeenCalledWith(1, { role: UserRole.ADMIN });
   });
 
   it('remove — delegates to service', async () => {
     service.remove.mockResolvedValue(undefined);
-    await controller.remove(1, mockReq(1));
-    expect(service.remove).toHaveBeenCalledWith(1, 1);
+    await controller.remove(1);
+    expect(service.remove).toHaveBeenCalledWith(1);
   });
 });

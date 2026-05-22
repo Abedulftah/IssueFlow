@@ -3,8 +3,6 @@ import { ProjectsController } from './projects.controller';
 import { ProjectsService } from './projects.service';
 import { TicketsService } from '../tickets/tickets.service';
 
-const mockReq = (userId = 5) => ({ user: { id: userId } } as any);
-
 const mockProjectsService = () => ({
   findAll: jest.fn(),
   findDeleted: jest.fn(),
@@ -95,16 +93,16 @@ describe('ProjectsController', () => {
   describe('update', () => {
     it('calls projectsService.update', async () => {
       projectsService.update.mockResolvedValue(undefined);
-      await controller.update(1, { name: 'Updated' }, mockReq(5));
-      expect(projectsService.update).toHaveBeenCalledWith(1, { name: 'Updated' }, 5);
+      await controller.update(1, { name: 'Updated' });
+      expect(projectsService.update).toHaveBeenCalledWith(1, { name: 'Updated' });
     });
   });
 
   describe('softDelete', () => {
     it('delegates to projectsService.softDelete', async () => {
       projectsService.softDelete.mockResolvedValue(undefined);
-      await controller.softDelete(1, mockReq(5));
-      expect(projectsService.softDelete).toHaveBeenCalledWith(1, 5);
+      await controller.softDelete(1);
+      expect(projectsService.softDelete).toHaveBeenCalledWith(1);
     });
   });
 
@@ -112,8 +110,8 @@ describe('ProjectsController', () => {
     it('delegates to projectsService.restore', async () => {
       const project = { id: 1 };
       projectsService.restore.mockResolvedValue(project);
-      expect(await controller.restore(1, mockReq(5))).toBe(project);
-      expect(projectsService.restore).toHaveBeenCalledWith(1, 5);
+      expect(await controller.restore(1)).toBe(project);
+      expect(projectsService.restore).toHaveBeenCalledWith(1);
     });
   });
 });

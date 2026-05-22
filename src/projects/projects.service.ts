@@ -6,6 +6,7 @@ import { Project } from './project.entity';
 import { UsersService } from '../users/users.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 @Injectable()
 export class ProjectsService {
@@ -19,7 +20,9 @@ export class ProjectsService {
   async create(dto: CreateProjectDto): Promise<Project> {
     await this.usersService.findOne(dto.ownerId);
     const project = this.projectsRepository.create(dto);
-    return this.projectsRepository.save(project);
+    return withCurrentUserTransaction(this.dataSource, (manager) =>
+      manager.getRepository(Project).save(project),
+    );
   }
 
   findAll(): Promise<Project[]> {
@@ -43,36 +46,27 @@ export class ProjectsService {
     });
   }
 
-  async update(id: number, dto: UpdateProjectDto, userId?: number): Promise<void> {
+  async update(id: number, dto: UpdateProjectDto): Promise<void> {
     const project = await this.findOne(id);
     if (dto.name !== undefined) project.name = dto.name;
     if (dto.description !== undefined) project.description = dto.description;
-    await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Project).save(project);
     });
   }
 
-  async softDelete(id: number, userId?: number): Promise<void> {
+  async softDelete(id: number): Promise<void> {
     await this.findOne(id); // throws 404 if not found or already soft-deleted
-    await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Project).softDelete(id);
     });
   }
 
-  async restore(id: number, userId?: number): Promise<void> {
+  async restore(id: number): Promise<void> {
     const project = await this.projectsRepository.findOne({ where: { id }, withDeleted: true });
     if (!project) throw new NotFoundException(`Project ${id} not found`);
     if (!project.deletedAt) throw new BadRequestException('Project is not deleted');
-    await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Project).restore(id);
     });
   }

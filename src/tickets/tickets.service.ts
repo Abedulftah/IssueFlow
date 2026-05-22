@@ -18,6 +18,7 @@ import { UserRole } from '../users/user.entity';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { ActorType } from '../audit-log/enums/actor-type.enum';
 import { parseCsv, toCsvRow } from './csv.util';
+import { withCurrentUserTransaction } from '../database/current-user-transaction';
 
 const CSV_EXPORT_HEADERS = ['id', 'title', 'description', 'status', 'priority', 'type', 'assigneeId'];
 
@@ -60,7 +61,7 @@ export class TicketsService {
     });
   }
 
-  async create(dto: CreateTicketDto, userId?: number): Promise<Ticket> {
+  async create(dto: CreateTicketDto): Promise<Ticket> {
     await this.projectsService.findOne(dto.projectId);
 
     if (dto.assigneeId) {
@@ -85,10 +86,7 @@ export class TicketsService {
       isOverdue: false,
     });
 
-    const saved = await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    const saved = await withCurrentUserTransaction(this.dataSource, (manager) => {
       return manager.getRepository(Ticket).save(ticket);
     });
 
@@ -105,7 +103,7 @@ export class TicketsService {
     return saved;
   }
 
-  async update(id: number, dto: UpdateTicketDto, userId?: number): Promise<Ticket> {
+  async update(id: number, dto: UpdateTicketDto): Promise<Ticket> {
     const ticket = await this.findOne(id); // assertProjectActive called inside findOne
 
     if (ticket.status === TicketStatus.DONE) {
@@ -151,10 +149,7 @@ export class TicketsService {
       ...(dto.dueDate !== undefined && { dueDate: new Date(dto.dueDate) }),
     });
 
-    const saved = await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    const saved = await withCurrentUserTransaction(this.dataSource, (manager) => {
       return manager.getRepository(Ticket).save(ticket);
     });
 
@@ -171,15 +166,12 @@ export class TicketsService {
       .getMany();
   }
 
-  async softDelete(id: number, userId?: number): Promise<void> {
+  async softDelete(id: number): Promise<void> {
     const ticket = await this.findOne(id); // assertProjectActive called inside findOne
     if (ticket.status === TicketStatus.DONE) {
       throw new BadRequestException('A DONE ticket cannot be deleted');
     }
-    await this.dataSource.transaction(async (manager) => {
-      if (userId !== undefined) {
-        await manager.query(`SET LOCAL issueflow.current_user_id = '${Number(userId)}'`);
-      }
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Ticket).softDelete(id);
     });
   }
@@ -194,7 +186,9 @@ export class TicketsService {
       throw new ConflictException('Parent project is soft-deleted; restore the project first');
     }
 
-    await this.ticketsRepository.restore(id);
+    await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Ticket).restore(id);
+    });
   }
 
   async exportToCsv(projectId: string): Promise<string> {
