@@ -29,8 +29,6 @@ import { SchedulerModule } from './scheduler/scheduler.module';
       database: process.env.DB_NAME ?? 'issueflow',
       autoLoadEntities: true,
       synchronize: true,
-      migrations: [__dirname + '/database/migrations/*.js'],
-      migrationsRun: true,
     }),
     AuditLogModule,
     UsersModule,

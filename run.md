@@ -20,6 +20,8 @@ npm install
 
 Docker Compose starts PostgreSQL on port `5432` and Mailpit (SMTP dev server) on ports `1025` / `8025`.
 
+**Prerequisite:** Make sure Docker is running on your system before proceeding.
+
 ```bash
 docker compose up -d
 ```
@@ -55,6 +57,8 @@ npm run build
 ## 4. Run the Application
 
 **Development mode** (watch — auto-reloads on file changes):
+
+Ensure the `.env` file is present in the project root and personlized before running:
 
 ```bash
 npm run start:dev
