@@ -154,7 +154,33 @@ describe('CommentsService', () => {
       ).resolves.not.toThrow();
     });
 
-    it('throws ConflictException on optimistic lock error', async () => {
+    it('throws ConflictException when client version is stale', async () => {
+      repo.findOne.mockResolvedValue(mockComment({ version: 3 }));
+      usersService.findByUsernames.mockResolvedValue([]);
+
+      await expect(service.update(1, 1, { content: 'x', version: 2 })).rejects.toThrow(ConflictException);
+      expect(repo.save).not.toHaveBeenCalled();
+    });
+
+    it('proceeds when client version matches db version', async () => {
+      repo.findOne.mockResolvedValue(mockComment({ version: 3 }));
+      repo.save.mockResolvedValue(mockComment({ version: 4 }));
+      usersService.findByUsernames.mockResolvedValue([]);
+      mentionRepo.find.mockResolvedValue([]);
+
+      await expect(service.update(1, 1, { content: 'x', version: 3 })).resolves.toBeDefined();
+    });
+
+    it('skips version check when version is omitted', async () => {
+      repo.findOne.mockResolvedValue(mockComment({ version: 5 }));
+      repo.save.mockResolvedValue(mockComment({ version: 6 }));
+      usersService.findByUsernames.mockResolvedValue([]);
+      mentionRepo.find.mockResolvedValue([]);
+
+      await expect(service.update(1, 1, { content: 'x' })).resolves.toBeDefined();
+    });
+
+    it('throws ConflictException on optimistic lock error from DB', async () => {
       repo.findOne.mockResolvedValue(mockComment());
       usersService.findByUsernames.mockResolvedValue([]);
       mentionRepo.find.mockResolvedValue([]);

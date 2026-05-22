@@ -1,6 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UserRole } from '../src/users/user.entity';
+import { Comment } from '../src/comments/comment.entity';
 import { TicketPriority, TicketType } from '../src/tickets/enums';
 import {
   bootstrapTestApp,
@@ -276,6 +279,51 @@ describe('Comments API (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ content: 'x' })
         .expect(404);
+    });
+  });
+
+  // ── Optimistic locking ────────────────────────────────────────────────────
+
+  describe('Optimistic locking (version mismatch → 409)', () => {
+    let commentId: number;
+    let commentRepo: Repository<Comment>;
+
+    beforeAll(async () => {
+      commentRepo = ctx.moduleRef.get<Repository<Comment>>(getRepositoryToken(Comment));
+
+      const res = await request(app.getHttpServer())
+        .post(`/tickets/${ticketId}/comments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ authorId: authorUserId, content: 'Lock test comment' })
+        .expect(200);
+      commentId = res.body.id;
+    });
+
+    it('returns 409 when the client sends a stale version', async () => {
+      const before = await commentRepo.findOne({ where: { id: commentId } });
+      const staleVersion = before!.version;
+
+      // First update succeeds and advances the version in the DB
+      await request(app.getHttpServer())
+        .patch(`/tickets/${ticketId}/comments/${commentId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ content: 'First update', version: staleVersion })
+        .expect(200);
+
+      // Second update with the same (now stale) version should conflict
+      await request(app.getHttpServer())
+        .patch(`/tickets/${ticketId}/comments/${commentId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ content: 'Stale update', version: staleVersion })
+        .expect(409);
+    });
+
+    it('succeeds when no version is provided (backwards-compatible)', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tickets/${ticketId}/comments/${commentId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ content: 'No version provided' })
+        .expect(200);
     });
   });
 

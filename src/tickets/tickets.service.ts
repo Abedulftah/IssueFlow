@@ -345,6 +345,7 @@ export class TicketsService {
          ON t."assigneeId" = u.id
         AND t."projectId" = $1
         AND t.status != $2
+        AND t."deletedAt" IS NULL
        WHERE u.role = $3
        GROUP BY u.id, u."createdAt"
        ORDER BY COUNT(t.id) ASC, u."createdAt" ASC

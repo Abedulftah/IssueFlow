@@ -78,6 +78,10 @@ export class CommentsService {
     await this.ticketsService.findOne(ticketId);
     const comment = await this.findComment(ticketId, commentId);
 
+    if (dto.version !== undefined && comment.version !== dto.version) {
+      throw new ConflictException('Comment was modified by another request');
+    }
+
     const usernames = extractMentions(dto.content);
     const mentionedUsers = await this.resolveMentions(usernames);
 

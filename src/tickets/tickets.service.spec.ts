@@ -209,6 +209,17 @@ describe('TicketsService', () => {
       expect(repo.query).not.toHaveBeenCalled();
       expect(ticket.assigneeId).toBe(7);
     });
+
+    it('excludes soft-deleted tickets from the workload count (query contains deletedAt IS NULL)', async () => {
+      repo.query.mockResolvedValue([{ userId: '5' }]);
+      repo.create.mockReturnValue(mockTicket());
+      repo.save.mockImplementation((t) => Promise.resolve({ ...t, id: 13, assigneeId: 5 }));
+
+      await service.create(baseDto);
+
+      const sql: string = repo.query.mock.calls[0][0];
+      expect(sql).toMatch(/t\."deletedAt"\s+IS\s+NULL/i);
+    });
   });
 
   describe('update — DONE blocker guard', () => {
@@ -332,6 +343,18 @@ describe('TicketsService', () => {
       const result = await service.importFromCsv('1', makeBuffer(csv));
       expect(repo.query).toHaveBeenCalled();
       expect(result.created).toBe(1);
+    });
+
+    it('excludes soft-deleted tickets from autoAssign workload count during import', async () => {
+      repo.query.mockResolvedValue([{ userId: '5' }]);
+      repo.create.mockReturnValue(mockTicket());
+      repo.save.mockResolvedValue(mockTicket({ id: 12, assigneeId: 5 }));
+
+      const csv = 'title,type\nFoo,TECHNICAL';
+      await service.importFromCsv('1', makeBuffer(csv));
+
+      const sql: string = repo.query.mock.calls[0][0];
+      expect(sql).toMatch(/t\."deletedAt"\s+IS\s+NULL/i);
     });
   });
 
