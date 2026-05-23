@@ -7,6 +7,7 @@ import { Reflector } from '@nestjs/core';
 import { Test, TestingModule, TestingModuleBuilder } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
+import { MailService } from '../../src/mail/mail.service';
 
 export interface TestAppContext {
   app: INestApplication;
@@ -24,6 +25,9 @@ export async function bootstrapTestApp(
 ): Promise<TestAppContext> {
   let builder = Test.createTestingModule({
     imports: [AppModule, ...(options.extraModules ?? [])],
+  });
+  builder = builder.overrideProvider(MailService).useValue({
+    sendMentionNotification: async () => undefined,
   });
   if (options.customize) builder = options.customize(builder);
 
