@@ -48,6 +48,7 @@ describe('AuthService', () => {
         username: 'jdoe',
         role: 'DEVELOPER',
         passwordHash: hash,
+        authVersion: 'v1',
       });
       mockJwtService.sign.mockReturnValue('jwt-abc');
 
@@ -63,6 +64,7 @@ describe('AuthService', () => {
         username: 'jdoe',
         role: 'DEVELOPER',
         passwordHash: hash,
+        authVersion: 'v1',
       });
 
       await expect(service.login('jdoe', 'wrong')).rejects.toThrow(UnauthorizedException);

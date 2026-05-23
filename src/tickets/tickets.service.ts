@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -36,7 +38,7 @@ export class TicketsService {
     private readonly ticketsRepository: Repository<Ticket>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly projectsService: ProjectsService,
-    private readonly usersService: UsersService,
+    @Inject(forwardRef(() => UsersService)) private readonly usersService: UsersService,
     private readonly auditLogService: AuditLogService,
   ) {}
 
@@ -344,6 +346,24 @@ export class TicketsService {
       username: r.username,
       openTicketCount: Number(r.openTicketCount),
     }));
+  }
+
+  async findByAssignee(userId: number): Promise<Ticket[]> {
+    return this.ticketsRepository.find({ where: { assigneeId: userId }, withDeleted: true });
+  }
+
+  async reAutoAssign(ticketId: number, projectId: number): Promise<void> {
+    const newAssigneeId = await this.autoAssign(projectId);
+    await this.ticketsRepository.update({ id: ticketId }, { assigneeId: newAssigneeId });
+    if (newAssigneeId !== null) {
+      await this.auditLogService.record({
+        action: 'AUTO_ASSIGN',
+        entityType: 'TICKET',
+        entityId: String(ticketId),
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
+    }
   }
 
   private async autoAssign(projectId: number): Promise<number | null> {

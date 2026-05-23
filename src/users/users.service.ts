@@ -1,12 +1,13 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { User } from './user.entity';
+import { User, UserRole } from './user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { withCurrentUserTransaction } from '../database/current-user-transaction';
+import { TicketsService } from '../tickets/tickets.service';
 
 @Injectable()
 export class UsersService {
@@ -14,6 +15,8 @@ export class UsersService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => TicketsService))
+    private readonly ticketsService: TicketsService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
@@ -25,6 +28,12 @@ export class UsersService {
     }
     const passwordHash = await bcrypt.hash(dto.password ?? 'secret', 10);
     const user = this.usersRepository.create({ ...dto, passwordHash });
+    return withCurrentUserTransaction(this.dataSource, (manager) =>
+      manager.getRepository(User).save(user),
+    );
+  }
+
+  async save(user: User): Promise<User> {
     return withCurrentUserTransaction(this.dataSource, (manager) =>
       manager.getRepository(User).save(user),
     );
@@ -54,17 +63,29 @@ export class UsersService {
 
   async update(id: number, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
+    const becomingAdmin = dto.role === UserRole.ADMIN && user.role !== UserRole.ADMIN;
+    const assignedTickets = becomingAdmin
+      ? await this.ticketsService.findByAssignee(id)
+      : [];
     if (dto.fullName !== undefined) user.fullName = dto.fullName;
     if (dto.role !== undefined) user.role = dto.role;
-    return withCurrentUserTransaction(this.dataSource, (manager) => {
+    const saved = await withCurrentUserTransaction(this.dataSource, (manager) => {
       return manager.getRepository(User).save(user);
     });
+    for (const ticket of assignedTickets) {
+      await this.ticketsService.reAutoAssign(ticket.id, ticket.projectId);
+    }
+    return saved;
   }
 
   async remove(id: number): Promise<void> {
     const user = await this.findOne(id);
+    const assignedTickets = await this.ticketsService.findByAssignee(id);
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(User).remove(user);
     });
+    for (const ticket of assignedTickets) {
+      await this.ticketsService.reAutoAssign(ticket.id, ticket.projectId);
+    }
   }
 }

@@ -167,7 +167,7 @@ describe('Ticket Auto-Escalation (e2e)', () => {
     expect(res.body.isOverdue).toBe(true);
 
     const auditEntries = await auditRepo.find({
-      where: { action: 'UPDATE', entityId: String(id) },
+      where: { action: 'ESCALATION', entityId: String(id) },
     });
     expect(auditEntries).toHaveLength(1);
   });
@@ -256,21 +256,27 @@ describe('Ticket Auto-Escalation (e2e)', () => {
 
   // ── 6.9 Audit log entry on escalation ────────────────────────────────────────
 
-  it('6.9 creates an ESCALATE audit log entry per escalated ticket', async () => {
+  it('6.9 creates a single ESCALATION audit log entry per escalated ticket', async () => {
     await clearTicketsAndAudit();
     const id = await createTicket(TicketPriority.LOW);
 
     await schedulerService.runEscalation();
 
-    const res = await request(app.getHttpServer())
+    const escalationLogs = await request(app.getHttpServer())
+      .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=ESCALATION`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    const updateLogs = await request(app.getHttpServer())
       .get(`/audit-logs?entityType=TICKET&entityId=${id}&action=UPDATE`)
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
 
-    expect(res.body.length).toBeGreaterThanOrEqual(1);
-    expect(res.body[0].action).toBe('UPDATE');
-    expect(res.body[0].actor).toBe('SYSTEM');
-    expect(res.body[0].entityId).toBe(id);
+    expect(escalationLogs.body).toHaveLength(1);
+    expect(escalationLogs.body[0].action).toBe('ESCALATION');
+    expect(escalationLogs.body[0].actor).toBe('SYSTEM');
+    expect(escalationLogs.body[0].entityId).toBe(id);
+    expect(updateLogs.body).toHaveLength(0);
   });
 
   // ── 6.10 No audit entry for skipped ticket ───────────────────────────────────

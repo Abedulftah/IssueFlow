@@ -229,6 +229,37 @@ describe('Users API (e2e)', () => {
         .expect(404);
     });
 
+    it('invalidates the deleted user token immediately', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/users')
+        .send({
+          username: 'self_delete',
+          email: 'self_delete@test.com',
+          fullName: 'Self Delete',
+          role: UserRole.DEVELOPER,
+        })
+        .expect(200);
+
+      const userId = createRes.body.id;
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'self_delete', password: 'secret' })
+        .expect(200);
+
+      const userToken = loginRes.body.accessToken;
+
+      await request(app.getHttpServer())
+        .delete(`/users/${userId}`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${userToken}`)
+        .expect(401);
+    });
+
     it('returns 404 when user does not exist', async () => {
       return request(app.getHttpServer())
         .delete('/users/999999')

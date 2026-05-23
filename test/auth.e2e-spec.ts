@@ -151,4 +151,80 @@ describe('Auth API (e2e)', () => {
         .expect(401);
     });
   });
+
+  // ── Deleted user token regression ────────────────────────────────────────
+
+  describe('deleted user token regression', () => {
+    it('rejects a deleted user token on other protected routes', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/users')
+        .send({
+          username: 'auth_deleted_user',
+          email: 'auth_deleted_user@test.com',
+          fullName: 'Auth Deleted User',
+          role: UserRole.DEVELOPER,
+        })
+        .expect(200);
+
+      const deletedUserId = createRes.body.id;
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'auth_deleted_user', password: 'secret' })
+        .expect(200);
+
+      const deletedUserToken = loginRes.body.accessToken;
+
+      await request(app.getHttpServer())
+        .delete(`/users/${deletedUserId}`)
+        .set('Authorization', `Bearer ${deletedUserToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get('/users')
+        .set('Authorization', `Bearer ${deletedUserToken}`)
+        .expect(401);
+    });
+
+    it('rejects an old token after the user is recreated', async () => {
+      const createRes = await request(app.getHttpServer())
+        .post('/users')
+        .send({
+          username: 'auth_recreated_user',
+          email: 'auth_recreated_user@test.com',
+          fullName: 'Auth Recreated User',
+          role: UserRole.DEVELOPER,
+        })
+        .expect(200);
+
+      const userId = createRes.body.id;
+
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'auth_recreated_user', password: 'secret' })
+        .expect(200);
+
+      const oldToken = loginRes.body.accessToken;
+
+      await request(app.getHttpServer())
+        .delete(`/users/${userId}`)
+        .set('Authorization', `Bearer ${oldToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post('/users')
+        .send({
+          username: 'auth_recreated_user',
+          email: 'auth_recreated_user@test.com',
+          fullName: 'Auth Recreated User Again',
+          role: UserRole.DEVELOPER,
+        })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get('/users')
+        .set('Authorization', `Bearer ${oldToken}`)
+        .expect(401);
+    });
+  });
 });

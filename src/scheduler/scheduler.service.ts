@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { Ticket } from '../tickets/ticket.entity';
 import { TicketPriority } from '../tickets/enums';
 import { TicketsService } from '../tickets/tickets.service';
@@ -20,8 +20,7 @@ export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
 
   constructor(
-    @InjectRepository(Ticket)
-    private readonly ticketRepo: Repository<Ticket>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly ticketsService: TicketsService,
     private readonly auditLogService: AuditLogService,
   ) {}
@@ -47,7 +46,21 @@ export class SchedulerService {
           ticket.priority = PRIORITY_ORDER[idx + 1];
         }
 
-        await this.ticketRepo.save(ticket);
+        await this.dataSource.transaction(async (manager) => {
+          await manager.query('SELECT set_config($1, $2, true)', [
+            'issueflow.skip_audit',
+            '1',
+          ]);
+          await manager.getRepository(Ticket).save(ticket);
+        });
+
+        await this.auditLogService.record({
+          action: 'ESCALATION',
+          entityType: 'TICKET',
+          entityId: String(ticket.id),
+          performedBy: 'SYSTEM',
+          actor: ActorType.SYSTEM,
+        });
       } catch (err) {
         this.logger.error(`Escalation failed for ticket ${ticket.id}`, err);
       }

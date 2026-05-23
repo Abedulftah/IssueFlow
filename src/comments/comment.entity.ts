@@ -25,11 +25,11 @@ export class Comment {
   @ManyToOne(() => Ticket, { nullable: false })
   ticket: Ticket;
 
-  @Column()
-  authorId: number;
+  @Column({ nullable: true })
+  authorId: number | null;
 
   @Exclude()
-  @ManyToOne(() => User, { nullable: false })
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   author: User;
 
   @Column({ type: 'text' })

@@ -5,6 +5,8 @@ import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, UserRole } from './user.entity';
 import { UsersService } from './users.service';
+import { TicketsService } from '../tickets/tickets.service';
+import { Ticket } from '../tickets/ticket.entity';
 
 const mockRepo = () => ({
   findOne: jest.fn(),
@@ -14,12 +16,19 @@ const mockRepo = () => ({
   remove: jest.fn(),
 });
 
+const mockTicketsService = () => ({
+  findByAssignee: jest.fn().mockResolvedValue([]),
+  reAutoAssign: jest.fn().mockResolvedValue(undefined),
+});
+
 describe('UsersService', () => {
   let service: UsersService;
   let repo: ReturnType<typeof mockRepo>;
+  let ticketsService: ReturnType<typeof mockTicketsService>;
 
   beforeEach(async () => {
     const repoValue = mockRepo();
+    const ticketsServiceValue = mockTicketsService();
     const dataSource = {
       transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
         cb({
@@ -34,11 +43,13 @@ describe('UsersService', () => {
         UsersService,
         { provide: getRepositoryToken(User), useValue: repoValue },
         { provide: DataSource, useValue: dataSource },
+        { provide: TicketsService, useValue: ticketsServiceValue },
       ],
     }).compile();
 
     service = module.get(UsersService);
     repo = module.get(getRepositoryToken(User));
+    ticketsService = module.get(TicketsService);
   });
 
   describe('create', () => {
@@ -158,6 +169,46 @@ describe('UsersService', () => {
       expect(result.role).toBe(UserRole.ADMIN);
     });
 
+    it('re-auto-assigns all tickets (including soft-deleted) when DEVELOPER becomes ADMIN', async () => {
+      const user = { id: 1, role: UserRole.DEVELOPER, fullName: 'Dev' } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.save.mockResolvedValue({ ...user, role: UserRole.ADMIN });
+
+      const tickets = [
+        { id: 10, projectId: 1, deletedAt: null } as Ticket,
+        { id: 11, projectId: 1, deletedAt: new Date() } as Ticket,
+      ];
+      ticketsService.findByAssignee.mockResolvedValue(tickets);
+
+      await service.update(1, { role: UserRole.ADMIN });
+
+      expect(ticketsService.findByAssignee).toHaveBeenCalledWith(1);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledTimes(2);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledWith(10, 1);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledWith(11, 1);
+    });
+
+    it('does not re-auto-assign when user is already ADMIN', async () => {
+      const user = { id: 1, role: UserRole.ADMIN, fullName: 'Admin' } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.save.mockResolvedValue({ ...user, fullName: 'Admin Updated' });
+
+      await service.update(1, { role: UserRole.ADMIN, fullName: 'Admin Updated' });
+
+      expect(ticketsService.findByAssignee).not.toHaveBeenCalled();
+      expect(ticketsService.reAutoAssign).not.toHaveBeenCalled();
+    });
+
+    it('does not re-auto-assign when only fullName is updated', async () => {
+      const user = { id: 1, role: UserRole.DEVELOPER, fullName: 'Dev' } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.save.mockResolvedValue({ ...user, fullName: 'Developer Updated' });
+
+      await service.update(1, { fullName: 'Developer Updated' });
+
+      expect(ticketsService.findByAssignee).not.toHaveBeenCalled();
+      expect(ticketsService.reAutoAssign).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {
@@ -168,6 +219,36 @@ describe('UsersService', () => {
 
       await expect(service.remove(1)).resolves.toBeUndefined();
       expect(repo.remove).toHaveBeenCalledWith(user);
+    });
+
+    it('re-auto-assigns active and soft-deleted tickets when user is deleted', async () => {
+      const user = { id: 1 } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.remove.mockResolvedValue(undefined);
+
+      const tickets = [
+        { id: 10, projectId: 1, deletedAt: null } as Ticket,
+        { id: 11, projectId: 2, deletedAt: new Date() } as Ticket,
+      ];
+      ticketsService.findByAssignee.mockResolvedValue(tickets);
+
+      await service.remove(1);
+
+      expect(ticketsService.findByAssignee).toHaveBeenCalledWith(1);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledTimes(2);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledWith(10, 1);
+      expect(ticketsService.reAutoAssign).toHaveBeenCalledWith(11, 2);
+    });
+
+    it('does not call reAutoAssign when user had no assigned tickets', async () => {
+      const user = { id: 1 } as User;
+      repo.findOne.mockResolvedValue(user);
+      repo.remove.mockResolvedValue(undefined);
+      ticketsService.findByAssignee.mockResolvedValue([]);
+
+      await service.remove(1);
+
+      expect(ticketsService.reAutoAssign).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when user does not exist', async () => {

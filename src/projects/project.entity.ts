@@ -20,11 +20,11 @@ export class Project {
   @Column('text')
   description: string;
 
-  @Column()
-  ownerId: number;
+  @Column({ nullable: true })
+  ownerId: number | null;
 
   @Exclude()
-  @ManyToOne(() => User, { eager: false })
+  @ManyToOne(() => User, { eager: false, nullable: true, onDelete: 'SET NULL' })
   owner: User;
 
   @Exclude()

@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { UsersService } from '../users/users.service';
 import { DeniedToken } from './denied-token.entity';
@@ -24,7 +25,17 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    const payload = { sub: user.id, username: user.username, role: user.role };
+    if (!user.authVersion) {
+      user.authVersion = randomUUID();
+      await this.usersService.save(user);
+    }
+
+    const payload = {
+      sub: user.id,
+      username: user.username,
+      role: user.role,
+      authVersion: user.authVersion,
+    };
     const accessToken = this.jwtService.sign(payload);
     return { accessToken, tokenType: 'Bearer', expiresIn: 3600 };
   }

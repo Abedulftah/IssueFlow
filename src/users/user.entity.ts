@@ -1,5 +1,8 @@
 import { Exclude } from 'class-transformer';
+import { randomUUID } from 'crypto';
 import {
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   CreateDateColumn,
   Entity,
@@ -34,10 +37,22 @@ export class User {
   passwordHash: string;
 
   @Exclude()
+  @Column({ type: 'text', nullable: true })
+  authVersion: string;
+
+  @Exclude()
   @CreateDateColumn()
   createdAt: Date;
 
   @Exclude()
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  ensureAuthVersion() {
+    if (!this.authVersion) {
+      this.authVersion = randomUUID();
+    }
+  }
 }

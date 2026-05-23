@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { SchedulerService } from './scheduler.service';
 
 beforeAll(() => jest.spyOn(Logger.prototype, 'error').mockImplementation(() => {}));
@@ -28,19 +28,27 @@ const makeTicket = (overrides: Partial<Ticket> = {}): Ticket =>
 
 describe('SchedulerService', () => {
   let service: SchedulerService;
-  let ticketRepo: { save: jest.Mock };
   let ticketsService: { findOverdueForEscalation: jest.Mock };
   let auditLogService: { record: jest.Mock };
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
-    ticketRepo = { save: jest.fn().mockResolvedValue(undefined) };
     ticketsService = { findOverdueForEscalation: jest.fn() };
     auditLogService = { record: jest.fn().mockResolvedValue(undefined) };
+    const repo = { save: jest.fn().mockResolvedValue(undefined) };
+    dataSource = {
+      transaction: jest.fn(async (callback: (manager: any) => unknown) =>
+        callback({
+          query: jest.fn().mockResolvedValue(undefined),
+          getRepository: () => repo,
+        }),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SchedulerService,
-        { provide: getRepositoryToken(Ticket), useValue: ticketRepo },
+        { provide: DataSource, useValue: dataSource },
         { provide: TicketsService, useValue: ticketsService },
         { provide: AuditLogService, useValue: auditLogService },
       ],
@@ -55,8 +63,8 @@ describe('SchedulerService', () => {
 
       await service.runEscalation();
 
-      expect(ticketRepo.save).not.toHaveBeenCalled();
       expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('promotes LOW priority to MEDIUM', async () => {
@@ -66,8 +74,13 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.priority).toBe(TicketPriority.MEDIUM);
-      expect(ticketRepo.save).toHaveBeenCalledWith(ticket);
-      expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'ESCALATION',
+        entityType: 'TICKET',
+        entityId: '1',
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
     });
 
     it('promotes MEDIUM priority to HIGH', async () => {
@@ -77,7 +90,13 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.priority).toBe(TicketPriority.HIGH);
-      expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'ESCALATION',
+        entityType: 'TICKET',
+        entityId: '1',
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
     });
 
     it('promotes HIGH priority to CRITICAL', async () => {
@@ -87,7 +106,13 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.priority).toBe(TicketPriority.CRITICAL);
-      expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'ESCALATION',
+        entityType: 'TICKET',
+        entityId: '1',
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
     });
 
     it('sets isOverdue=true for CRITICAL ticket that is not yet flagged', async () => {
@@ -97,8 +122,13 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.isOverdue).toBe(true);
-      expect(ticketRepo.save).toHaveBeenCalledWith(ticket);
-      expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'ESCALATION',
+        entityType: 'TICKET',
+        entityId: '1',
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
     });
 
     it('skips CRITICAL ticket that is already flagged as overdue', async () => {
@@ -107,8 +137,8 @@ describe('SchedulerService', () => {
 
       await service.runEscalation();
 
-      expect(ticketRepo.save).not.toHaveBeenCalled();
       expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('logs error and returns early when the initial query throws', async () => {
@@ -116,22 +146,27 @@ describe('SchedulerService', () => {
 
       await service.runEscalation();
 
-      expect(ticketRepo.save).not.toHaveBeenCalled();
       expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
     it('continues processing remaining tickets when one fails', async () => {
       const failing = makeTicket({ id: 1, priority: TicketPriority.LOW });
       const succeeding = makeTicket({ id: 2, priority: TicketPriority.MEDIUM });
       ticketsService.findOverdueForEscalation.mockResolvedValue([failing, succeeding]);
-      ticketRepo.save
-        .mockRejectedValueOnce(new Error('DB error'))
-        .mockResolvedValueOnce(undefined);
+
+      dataSource.transaction.mockRejectedValueOnce(new Error('DB error')).mockResolvedValueOnce(undefined);
 
       await service.runEscalation();
 
-      expect(ticketRepo.save).toHaveBeenCalledTimes(2);
-      expect(auditLogService.record).not.toHaveBeenCalled();
+      expect(auditLogService.record).toHaveBeenCalledTimes(1);
+      expect(auditLogService.record).toHaveBeenCalledWith({
+        action: 'ESCALATION',
+        entityType: 'TICKET',
+        entityId: '2',
+        performedBy: 'SYSTEM',
+        actor: ActorType.SYSTEM,
+      });
     });
   });
 });
