@@ -38,6 +38,7 @@ export class AuditLogService implements OnModuleInit {
           v_performed_by TEXT;
           v_new_json     JSONB;
           v_old_json     JSONB;
+          v_skip         TEXT;
         BEGIN
           IF TG_OP = 'INSERT' THEN
             v_action := 'CREATE';
@@ -75,6 +76,15 @@ export class AuditLogService implements OnModuleInit {
             NULLIF(current_setting('issueflow.current_user_id', true), ''),
             'SYSTEM'
           );
+
+          -- If a caller has set the skip flag for the current session/transaction,
+          -- do not emit the automatic audit row from the trigger. This allows
+          -- callers (eg. scheduler) to perform changes and record a custom
+          -- audit entry instead of the generic UPDATE/DELETE/CREATE row.
+          v_skip := current_setting('issueflow.skip_audit', true);
+          IF v_skip = '1' THEN
+            RETURN NULL;
+          END IF;
 
           INSERT INTO audit_logs (action, "entityType", "entityId", "performedBy", actor, timestamp)
           VALUES (

@@ -191,7 +191,7 @@ describe('TicketsService', () => {
       expect(ticket.assigneeId).toBe(3);
     });
 
-    it('leaves assigneeId null when no DEVELOPERs exist', async () => {
+    it('leaves assigneeId null when no DEVELOPERs are linked to the project', async () => {
       repo.query.mockResolvedValue([]);
       const base = mockTicket({ assigneeId: null });
       repo.create.mockReturnValue(base);
@@ -199,6 +199,18 @@ describe('TicketsService', () => {
 
       const ticket = await service.create(baseDto);
       expect(ticket.assigneeId).toBeNull();
+    });
+
+    it('scopes auto-assign to developers linked via existing tickets (INNER JOIN subquery)', async () => {
+      repo.query.mockResolvedValue([{ userId: '5' }]);
+      repo.create.mockReturnValue(mockTicket());
+      repo.save.mockImplementation((t) => Promise.resolve({ ...t, id: 10, assigneeId: 5 }));
+
+      await service.create(baseDto);
+
+      const sql: string = repo.query.mock.calls[0][0];
+      expect(sql).toMatch(/INNER JOIN/i);
+      expect(sql).toMatch(/SELECT DISTINCT "assigneeId"/i);
     });
 
     it('skips auto-assignment when explicit assigneeId is provided', async () => {

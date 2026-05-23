@@ -86,6 +86,9 @@ export class TicketsService {
       isOverdue: false,
     });
 
+    // Preserve per-request user auditing for ticket creation by using the
+    // current-user transaction helper (this sets issueflow.current_user_id so
+    // the DB trigger records the CREATE as performed by the requesting user).
     const saved = await withCurrentUserTransaction(this.dataSource, (manager) => {
       return manager.getRepository(Ticket).save(ticket);
     });
@@ -266,7 +269,15 @@ export class TicketsService {
           dueDate,
           isOverdue: false,
         });
-        const saved = await this.ticketsRepository.save(ticket);
+        // Save each imported ticket with skip_audit so the DB trigger does not
+        // emit a CREATE audit row; we will explicitly record AUTO_ASSIGN.
+        const saved = await this.dataSource.transaction(async (manager) => {
+          await manager.query('SELECT set_config($1, $2, true)', [
+            'issueflow.skip_audit',
+            '1',
+          ]);
+          return manager.getRepository(Ticket).save(ticket);
+        });
 
         if (autoAssigned && assigneeId !== null) {
           await this.auditLogService.record({
@@ -314,6 +325,10 @@ export class TicketsService {
       await this.ticketsRepository.query(
         `SELECT u.id AS "userId", u.username, COUNT(t.id)::int AS "openTicketCount"
          FROM users u
+         INNER JOIN (
+           SELECT DISTINCT "assigneeId" FROM tickets
+           WHERE "projectId" = $1 AND "deletedAt" IS NULL
+         ) linked ON linked."assigneeId" = u.id
          LEFT JOIN tickets t
            ON t."assigneeId" = u.id
           AND t."projectId" = $1
@@ -335,6 +350,10 @@ export class TicketsService {
     const rows: { userId: string }[] = await this.ticketsRepository.query(
       `SELECT u.id AS "userId"
        FROM users u
+       INNER JOIN (
+         SELECT DISTINCT "assigneeId" FROM tickets
+         WHERE "projectId" = $1 AND "deletedAt" IS NULL
+       ) linked ON linked."assigneeId" = u.id
        LEFT JOIN tickets t
          ON t."assigneeId" = u.id
         AND t."projectId" = $1

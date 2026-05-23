@@ -77,6 +77,7 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.priority).toBe(TicketPriority.HIGH);
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('promotes HIGH priority to CRITICAL', async () => {
@@ -86,6 +87,7 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticket.priority).toBe(TicketPriority.CRITICAL);
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('sets isOverdue=true for CRITICAL ticket that is not yet flagged', async () => {
@@ -96,6 +98,7 @@ describe('SchedulerService', () => {
 
       expect(ticket.isOverdue).toBe(true);
       expect(ticketRepo.save).toHaveBeenCalledWith(ticket);
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('skips CRITICAL ticket that is already flagged as overdue', async () => {
@@ -105,6 +108,7 @@ describe('SchedulerService', () => {
       await service.runEscalation();
 
       expect(ticketRepo.save).not.toHaveBeenCalled();
+      expect(auditLogService.record).not.toHaveBeenCalled();
     });
 
     it('logs error and returns early when the initial query throws', async () => {

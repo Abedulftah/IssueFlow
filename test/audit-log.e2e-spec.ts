@@ -230,10 +230,15 @@ describe('AuditLog API (e2e)', () => {
 
   describe('AUTO_ASSIGN audit entry', () => {
     it('writes an AUTO_ASSIGN SYSTEM entry when a developer exists and no assigneeId is given', async () => {
-      // Ensure a developer user exists
-      await request(app.getHttpServer())
+      // Ensure a developer user exists and is linked to the project via an explicit ticket
+      const devRes = await request(app.getHttpServer())
         .post('/users')
         .send({ username: 'aa_dev', email: 'aa_dev@test.com', fullName: 'AA Dev', role: UserRole.DEVELOPER })
+        .expect(200);
+      await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ title: 'Link dev to project', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: testProjectId, assigneeId: devRes.body.id })
         .expect(200);
 
       const ticketRes = await request(app.getHttpServer())

@@ -4,7 +4,6 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User, UserRole } from '../src/users/user.entity';
 import { AuditLog } from '../src/audit-log/entities/audit-log.entity';
-import { Ticket } from '../src/tickets/ticket.entity';
 import { TicketPriority, TicketStatus, TicketType } from '../src/tickets/enums';
 import {
   bootstrapTestApp,
@@ -21,7 +20,6 @@ describe('Auto-Assignment & Workload (e2e)', () => {
   let projectId: number;
   let userRepo: Repository<User>;
   let auditLogRepo: Repository<AuditLog>;
-  let ticketRepo: Repository<Ticket>;
 
   async function createUser(
     username: string,
@@ -90,7 +88,6 @@ describe('Auto-Assignment & Workload (e2e)', () => {
     app = ctx.app;
     userRepo = ctx.moduleRef.get(getRepositoryToken(User));
     auditLogRepo = ctx.moduleRef.get(getRepositoryToken(AuditLog));
-    ticketRepo = ctx.moduleRef.get(getRepositoryToken(Ticket));
 
     await resetDatabase(ctx.dataSource);
 
@@ -119,21 +116,28 @@ describe('Auto-Assignment & Workload (e2e)', () => {
   // ── Auto-Assignment on creation ───────────────────────────────────────────
 
   describe('Auto-assignment on POST /tickets (no assigneeId)', () => {
-    it('6.4b: DEVELOPER with zero tickets in project is a valid candidate and gets assigned', async () => {
-      const { id: devId } = await createUser('aa_dev_zero', UserRole.DEVELOPER);
+    it('6.4b: assigneeId is null when no DEVELOPERs are linked to the project (no prior ticket assignments)', async () => {
+      await createUser('aa_dev_zero', UserRole.DEVELOPER);
+
+      const freshProjRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Empty Project 64b', description: 'no linked devs', ownerId: adminUserId })
+        .expect(200);
+      const freshProjId = freshProjRes.body.id;
 
       const res = await request(app.getHttpServer())
         .post('/tickets')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          title: 'Zero-load ticket',
+          title: 'No linked dev ticket',
           priority: TicketPriority.LOW,
           type: TicketType.TECHNICAL,
-          projectId,
+          projectId: freshProjId,
         })
         .expect(200);
 
-      expect(res.body.assigneeId).toBe(devId);
+      expect(res.body.assigneeId).toBeNull();
     });
 
     it('6.2: selects DEVELOPER with fewest non-DONE tickets when multiple candidates exist', async () => {
@@ -144,12 +148,13 @@ describe('Auto-Assignment & Workload (e2e)', () => {
         .expect(200);
       const freshProjId = freshProjRes.body.id;
 
-      // Give all currently existing DEVELOPERs 2 tickets in this project
+      // Give all currently existing DEVELOPERs 2 tickets in this project (links them)
       await ensureAllDevsHaveTicketInProject(freshProjId);
       await ensureAllDevsHaveTicketInProject(freshProjId);
 
-      // New DEVELOPER with 0 tickets is the unique least-loaded candidate
+      // New DEVELOPER linked with only 1 ticket — uniquely least-loaded
       const { id: lightestDev } = await createUser('aa_dev_lightest', UserRole.DEVELOPER);
+      await createTicketForUser(freshProjId, lightestDev);
 
       const res = await request(app.getHttpServer())
         .post('/tickets')
@@ -173,13 +178,17 @@ describe('Auto-Assignment & Workload (e2e)', () => {
         .expect(200);
       const tieProj = freshProjRes.body.id;
 
-      // Give all currently existing DEVELOPERs 1 ticket so they are not at 0
+      // Give all currently existing DEVELOPERs 2 tickets so they are above the tied candidates
+      await ensureAllDevsHaveTicketInProject(tieProj);
       await ensureAllDevsHaveTicketInProject(tieProj);
 
       // Create two new DEVELOPERs sequentially — earlyTie.createdAt < lateTie.createdAt
       const { id: earlyTieId } = await createUser('tie_dev_early', UserRole.DEVELOPER);
       const { id: lateTieId } = await createUser('tie_dev_late', UserRole.DEVELOPER);
-      void lateTieId; // both have 0 tickets in tieProj; earlyTieId wins the tie-break
+      // Link both with exactly 1 ticket each (tied, fewer than the 2 held by older devs)
+      await createTicketForUser(tieProj, earlyTieId);
+      await createTicketForUser(tieProj, lateTieId);
+      void lateTieId; // earlyTieId wins the tie-break (earlier createdAt)
 
       const res = await request(app.getHttpServer())
         .post('/tickets')
@@ -297,9 +306,11 @@ describe('Auto-Assignment & Workload (e2e)', () => {
         .expect(200);
       const auditProjId = auditProjRes.body.id;
 
-      // Give all currently existing DEVELOPERs a ticket so the new one is uniquely least-loaded
+      // Give all currently existing DEVELOPERs 2 tickets so auditDev (with 1) is uniquely least-loaded
+      await ensureAllDevsHaveTicketInProject(auditProjId);
       await ensureAllDevsHaveTicketInProject(auditProjId);
       const { id: auditDev } = await createUser('aa_dev_audit', UserRole.DEVELOPER);
+      await createTicketForUser(auditProjId, auditDev);
 
       const res = await request(app.getHttpServer())
         .post('/tickets')
@@ -420,8 +431,8 @@ describe('Auto-Assignment & Workload (e2e)', () => {
       expect(wl2.openTicketCount).toBe(1);
     });
 
-    it('6.11: DEVELOPERs with zero tickets in project appear with openTicketCount = 0', async () => {
-      // Create a DEVELOPER who has no tickets in wlProjId
+    it('6.11: DEVELOPERs not linked to the project do not appear in the workload', async () => {
+      // Create a DEVELOPER who has no tickets in wlProjId — not linked, should not appear
       const { id: zeroDev } = await createUser('wl_dev_zero', UserRole.DEVELOPER);
 
       const res = await request(app.getHttpServer())
@@ -430,8 +441,7 @@ describe('Auto-Assignment & Workload (e2e)', () => {
         .expect(200);
 
       const zeroEntry = res.body.find((e: any) => e.userId === zeroDev);
-      expect(zeroEntry).toBeDefined();
-      expect(zeroEntry.openTicketCount).toBe(0);
+      expect(zeroEntry).toBeUndefined();
     });
 
     it('6.11b: returns [] when no DEVELOPER-role users exist in the system', async () => {
