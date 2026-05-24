@@ -33,16 +33,20 @@ describe('DependenciesService', () => {
     findOne: jest.Mock;
     save: jest.Mock;
   };
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     repo = { findOne: jest.fn(), save: jest.fn().mockResolvedValue(undefined) };
-    const dataSource = {
-      transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
-        cb({
+    // Accept both transaction(cb) used by withCurrentUserTransaction (removeDependency)
+    // and transaction('SERIALIZABLE', cb) used by addDependency.
+    dataSource = {
+      transaction: jest.fn(async (isolationOrCb: any, maybeCb?: any) => {
+        const cb = typeof isolationOrCb === 'function' ? isolationOrCb : maybeCb;
+        return cb({
           query: jest.fn().mockResolvedValue(undefined),
           getRepository: () => repo,
-        }),
-      ),
+        });
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -74,6 +78,19 @@ describe('DependenciesService', () => {
     it('rejects self-block', async () => {
       await expect(service.addDependency(1, 1)).rejects.toThrow(BadRequestException);
       expect(repo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('uses SERIALIZABLE isolation so the cycle check and insert are atomic', async () => {
+      const blocked = makeTicket({ id: 2, projectId: 1, blockers: [] });
+      const blocker = makeTicket({ id: 1, projectId: 1, blockers: [] });
+      repo.findOne
+        .mockResolvedValueOnce(blocked)
+        .mockResolvedValueOnce(blocker)
+        .mockResolvedValueOnce(blocker);
+
+      await service.addDependency(2, 1);
+
+      expect(dataSource.transaction).toHaveBeenCalledWith('SERIALIZABLE', expect.any(Function));
     });
 
     it('throws 404 when blocked ticket does not exist', async () => {

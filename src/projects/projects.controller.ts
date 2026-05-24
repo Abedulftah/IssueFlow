@@ -2,12 +2,14 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
   ParseIntPipe,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -59,7 +61,12 @@ export class ProjectsController {
   async update(
     @Param('projectId', ParseIntPipe) projectId: number,
     @Body() dto: UpdateProjectDto,
+    @Req() req: any,
   ): Promise<void> {
+    const project = await this.projectsService.findOne(projectId);
+    if (req.user.role !== UserRole.ADMIN && req.user.id !== project.ownerId) {
+      throw new ForbiddenException();
+    }
     await this.projectsService.update(projectId, dto);
   }
 

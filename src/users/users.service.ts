@@ -55,9 +55,10 @@ export class UsersService {
 
   async findByUsernames(usernames: string[]): Promise<User[]> {
     if (!usernames.length) return [];
+    const lowerUsernames = usernames.map((u) => u.toLowerCase());
     return this.usersRepository
       .createQueryBuilder('user')
-      .where('LOWER(user.username) IN (:...usernames)', { usernames })
+      .where('LOWER(user.username) IN (:...usernames)', { usernames: lowerUsernames })
       .getMany();
   }
 

@@ -125,9 +125,10 @@ describe('AttachmentsService', () => {
       expect(repo.delete).toHaveBeenCalledWith(5);
     });
 
-    it('re-throws non-ENOENT file errors', async () => {
+    it('re-throws non-ENOENT file errors — DB delete was attempted first', async () => {
       const attachment = { id: 5, storagePath: '/locked.png', ticketId: 1 };
       repo.findOne.mockResolvedValue(attachment);
+      repo.delete.mockResolvedValue(undefined);
       (fs.unlinkSync as jest.Mock).mockImplementation(() => {
         const err: any = new Error('EPERM');
         err.code = 'EPERM';
@@ -135,6 +136,9 @@ describe('AttachmentsService', () => {
       });
 
       await expect(service.remove(5)).rejects.toThrow('EPERM');
+      // DB delete runs inside the transaction before the file operation, so it is
+      // always attempted even when the subsequent unlinkSync call fails.
+      expect(repo.delete).toHaveBeenCalledWith(5);
     });
 
     it('filters by ticketId when provided', async () => {

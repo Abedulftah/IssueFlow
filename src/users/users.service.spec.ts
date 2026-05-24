@@ -155,6 +155,21 @@ describe('UsersService', () => {
         { usernames: ['jdoe'] },
       );
     });
+
+    it('lowercases mixed-case input before binding to the query', async () => {
+      const qb = {
+        where: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      };
+      (repo as any).createQueryBuilder = jest.fn().mockReturnValue(qb);
+
+      await service.findByUsernames(['JDoe', 'ALICE', 'Bob']);
+
+      expect(qb.where).toHaveBeenCalledWith(
+        'LOWER(user.username) IN (:...usernames)',
+        { usernames: ['jdoe', 'alice', 'bob'] },
+      );
+    });
   });
 
   describe('update', () => {

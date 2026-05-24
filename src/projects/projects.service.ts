@@ -60,6 +60,7 @@ export class ProjectsService {
 
   async softDelete(id: number): Promise<void> {
     await this.findOne(id); // throws 404 if not found or already soft-deleted
+    const now = new Date();
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       const tickets = await manager.getRepository(Ticket).find({
         where: { projectId: id },
@@ -69,9 +70,21 @@ export class ProjectsService {
       if (ticketIds.length > 0) {
         await manager.getRepository(Attachment).softDelete({ ticketId: In(ticketIds) });
         await manager.getRepository(Comment).softDelete({ ticketId: In(ticketIds) });
-        await manager.getRepository(Ticket).softDelete({ projectId: id });
+        // Use explicit timestamp so cascade-deleted tickets share the project's deletedAt,
+        // allowing restore() to distinguish them from independently-deleted tickets.
+        await manager
+          .createQueryBuilder()
+          .update(Ticket)
+          .set({ deletedAt: now })
+          .where('projectId = :id AND "deletedAt" IS NULL', { id })
+          .execute();
       }
-      await manager.getRepository(Project).softDelete(id);
+      await manager
+        .createQueryBuilder()
+        .update(Project)
+        .set({ deletedAt: now })
+        .where('id = :id AND "deletedAt" IS NULL', { id })
+        .execute();
     });
   }
 
@@ -79,15 +92,19 @@ export class ProjectsService {
     const project = await this.projectsRepository.findOne({ where: { id }, withDeleted: true });
     if (!project) throw new NotFoundException(`Project ${id} not found`);
     if (!project.deletedAt) throw new BadRequestException('Project is not deleted');
+    const projectDeletedAt = project.deletedAt;
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Project).restore(id);
-      await manager.getRepository(Ticket).restore({ projectId: id });
-      const tickets = await manager.getRepository(Ticket).find({
-        where: { projectId: id },
+      // Only restore tickets that were cascade-deleted with the project (same deletedAt timestamp).
+      // Tickets independently soft-deleted before the project deletion keep their deleted state.
+      const cascadedTickets = await manager.getRepository(Ticket).find({
+        where: { projectId: id, deletedAt: projectDeletedAt },
+        withDeleted: true,
         select: ['id'],
       });
-      const ticketIds = tickets.map((t) => t.id);
+      const ticketIds = cascadedTickets.map((t) => t.id);
       if (ticketIds.length > 0) {
+        await manager.getRepository(Ticket).restore(ticketIds);
         await manager.getRepository(Attachment).restore({ ticketId: In(ticketIds) });
         await manager.getRepository(Comment).restore({ ticketId: In(ticketIds) });
       }

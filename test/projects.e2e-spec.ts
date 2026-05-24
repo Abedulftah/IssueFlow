@@ -14,6 +14,7 @@ describe('Projects API (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
   let adminUserId: number;
+  let devToken: string;
   let projectId: number;
 
   beforeAll(async () => {
@@ -32,6 +33,17 @@ describe('Projects API (e2e)', () => {
       .send({ username: 'proj_admin', password: 'secret' })
       .expect(200);
     adminToken = loginRes.body.accessToken;
+
+    await request(app.getHttpServer())
+      .post('/users')
+      .send({ username: 'proj_dev', email: 'proj_dev@test.com', fullName: 'Proj Dev', role: UserRole.DEVELOPER, password: 'secret' })
+      .expect(200);
+
+    const devLoginRes = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ username: 'proj_dev', password: 'secret' })
+      .expect(200);
+    devToken = devLoginRes.body.accessToken;
   });
 
   afterAll(async () => {
@@ -143,7 +155,49 @@ describe('Projects API (e2e)', () => {
         .expect(401);
     });
 
-    it('updates name and description', async () => {
+    it('returns 403 when a non-owner non-admin user tries to update', () => {
+      return request(app.getHttpServer())
+        .patch(`/projects/${projectId}`)
+        .set('Authorization', `Bearer ${devToken}`)
+        .send({ name: 'Hijacked' })
+        .expect(403);
+    });
+
+    it('allows the project owner (non-admin) to update their project', async () => {
+      const ownerDevRes = await request(app.getHttpServer())
+        .post('/users')
+        .send({ username: 'proj_owner_dev', email: 'proj_owner_dev@test.com', fullName: 'Owner Dev', role: UserRole.DEVELOPER, password: 'secret' })
+        .expect(200);
+      const ownerDevId = ownerDevRes.body.id;
+
+      const ownerLoginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'proj_owner_dev', password: 'secret' })
+        .expect(200);
+      const ownerToken = ownerLoginRes.body.accessToken;
+
+      const projRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Owner Dev Project', description: 'owned by dev', ownerId: ownerDevId })
+        .expect(200);
+      const ownedProjId = projRes.body.id;
+
+      await request(app.getHttpServer())
+        .patch(`/projects/${ownedProjId}`)
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ name: 'Renamed By Owner' })
+        .expect(200);
+
+      const res = await request(app.getHttpServer())
+        .get(`/projects/${ownedProjId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.name).toBe('Renamed By Owner');
+    });
+
+    it('allows admin to update any project regardless of ownership', async () => {
       await request(app.getHttpServer())
         .patch(`/projects/${projectId}`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -306,6 +360,64 @@ describe('Projects API (e2e)', () => {
         .post(`/projects/${projectId}/restore`)
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(400);
+    });
+
+    it('restores only cascade-deleted tickets, not independently-deleted ones', async () => {
+      const projRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Cascade Restore Test', description: 'x', ownerId: adminUserId })
+        .expect(200);
+      const cascadeProjId = projRes.body.id;
+
+      // T1: independently deleted before the project is deleted
+      const t1Res = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Independent ticket', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: cascadeProjId })
+        .expect(200);
+      const t1Id = t1Res.body.id;
+
+      // T2: active when the project is deleted — will be cascade-deleted
+      const t2Res = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Cascade ticket', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: cascadeProjId })
+        .expect(200);
+      const t2Id = t2Res.body.id;
+
+      // Independently delete T1 before the project is deleted
+      await request(app.getHttpServer())
+        .delete(`/tickets/${t1Id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Delete the project (cascades to T2 only; T1 is already deleted)
+      await request(app.getHttpServer())
+        .delete(`/projects/${cascadeProjId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Restore the project
+      await request(app.getHttpServer())
+        .post(`/projects/${cascadeProjId}/restore`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // T2 (cascade-deleted) should be accessible again
+      await request(app.getHttpServer())
+        .get(`/tickets/${t2Id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // T1 (independently deleted) should remain in the deleted list, not restored
+      const deletedRes = await request(app.getHttpServer())
+        .get(`/tickets/deleted?projectId=${cascadeProjId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(deletedRes.body.some((t: any) => t.id === t1Id)).toBe(true);
+      expect(deletedRes.body.some((t: any) => t.id === t2Id)).toBe(false);
     });
   });
 

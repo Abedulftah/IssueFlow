@@ -92,8 +92,10 @@ describe('ProjectsController', () => {
 
   describe('update', () => {
     it('calls projectsService.update', async () => {
+      projectsService.findOne.mockResolvedValue({ id: 1, ownerId: 1 });
       projectsService.update.mockResolvedValue(undefined);
-      await controller.update(1, { name: 'Updated' });
+      const req = { user: { role: 'ADMIN', id: 1 } };
+      await controller.update(1, { name: 'Updated' }, req);
       expect(projectsService.update).toHaveBeenCalledWith(1, { name: 'Updated' });
     });
   });

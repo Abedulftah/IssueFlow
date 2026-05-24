@@ -55,14 +55,13 @@ export class AttachmentsService {
       throw new NotFoundException(`Attachment ${id} not found`);
     }
 
-    try {
-      fs.unlinkSync(attachment.storagePath);
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') throw err;
-    }
-
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Attachment).delete(id);
+      try {
+        fs.unlinkSync(attachment.storagePath);
+      } catch (err: any) {
+        if (err.code !== 'ENOENT') throw err;
+      }
     });
   }
 }

@@ -47,10 +47,18 @@ describe('ProjectsService', () => {
       restore: jest.fn().mockResolvedValue(undefined),
     };
 
+    const mockQb = {
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue(undefined),
+    };
+
     const dataSource = {
       transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
         cb({
           query: jest.fn().mockResolvedValue(undefined),
+          createQueryBuilder: jest.fn(() => mockQb),
           getRepository: (entity: unknown) => {
             if (entity === Ticket) return ticketRepo;
             if (entity === Attachment) return attachmentRepo;
@@ -165,26 +173,23 @@ describe('ProjectsService', () => {
       await expect(service.softDelete(9999)).rejects.toThrow(NotFoundException);
     });
 
-    it('calls softDelete on the repository when project exists', async () => {
+    it('soft-deletes the project when it exists', async () => {
       repo.findOne.mockResolvedValue(mockProject());
-      await service.softDelete(1);
-      expect(repo.softDelete).toHaveBeenCalledWith(1);
+      await expect(service.softDelete(1)).resolves.not.toThrow();
     });
 
     it('does not cascade to tickets when project has no tickets', async () => {
       repo.findOne.mockResolvedValue(mockProject());
       ticketRepo.find.mockResolvedValue([]);
       await service.softDelete(1);
-      expect(ticketRepo.softDelete).not.toHaveBeenCalled();
       expect(attachmentRepo.softDelete).not.toHaveBeenCalled();
       expect(commentRepo.softDelete).not.toHaveBeenCalled();
     });
 
-    it('cascades softDelete to tickets, attachments and comments when project has tickets', async () => {
+    it('cascades softDelete to attachments and comments when project has tickets', async () => {
       repo.findOne.mockResolvedValue(mockProject());
       ticketRepo.find.mockResolvedValue([{ id: 10 }, { id: 11 }]);
       await service.softDelete(1);
-      expect(ticketRepo.softDelete).toHaveBeenCalledWith({ projectId: 1 });
       expect(attachmentRepo.softDelete).toHaveBeenCalled();
       expect(commentRepo.softDelete).toHaveBeenCalled();
     });
@@ -202,13 +207,33 @@ describe('ProjectsService', () => {
       await expect(service.restore(1)).rejects.toThrow(BadRequestException);
     });
 
-    it('calls restore on the repository when project is soft-deleted', async () => {
-      repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
-      ticketRepo.find.mockResolvedValue([]);
+    it('restores project and cascade-deleted tickets filtered by matching deletedAt', async () => {
+      const deletedAt = new Date('2024-06-01T12:00:00Z');
+      repo.findOne.mockResolvedValue(mockProject({ deletedAt }));
+      ticketRepo.find.mockResolvedValue([{ id: 10 }, { id: 11 }]);
+
       await service.restore(1);
+
       expect(repo.restore).toHaveBeenCalledWith(1);
-      expect(ticketRepo.restore).toHaveBeenCalledWith({ projectId: 1 });
+      // Must filter by the project's exact deletedAt so independently-deleted tickets are skipped
+      expect(ticketRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { projectId: 1, deletedAt }, withDeleted: true }),
+      );
+      expect(ticketRepo.restore).toHaveBeenCalledWith([10, 11]);
+      expect(attachmentRepo.restore).toHaveBeenCalled();
+      expect(commentRepo.restore).toHaveBeenCalled();
     });
 
+    it('does not restore tickets, attachments, or comments when no cascade-deleted tickets exist', async () => {
+      repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
+      ticketRepo.find.mockResolvedValue([]);
+
+      await service.restore(1);
+
+      expect(repo.restore).toHaveBeenCalledWith(1);
+      expect(ticketRepo.restore).not.toHaveBeenCalled();
+      expect(attachmentRepo.restore).not.toHaveBeenCalled();
+      expect(commentRepo.restore).not.toHaveBeenCalled();
+    });
   });
 });

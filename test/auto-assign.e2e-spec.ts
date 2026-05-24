@@ -217,28 +217,28 @@ describe('Auto-Assignment & Workload (e2e)', () => {
       // Since we can't remove DEVELOPERs safely without affecting other tests, we verify
       // the null-path via repository: update all developers to ADMIN role temporarily.
       await userRepo.query(`UPDATE users SET role = 'ADMIN' WHERE role = 'DEVELOPER'`);
+      try {
+        const isolatedProjRes = await request(app.getHttpServer())
+          .post('/projects')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ name: 'No Dev Project', description: 'no dev', ownerId: adminUserId })
+          .expect(200);
 
-      const isolatedProjRes = await request(app.getHttpServer())
-        .post('/projects')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: 'No Dev Project', description: 'no dev', ownerId: adminUserId })
-        .expect(200);
+        const res = await request(app.getHttpServer())
+          .post('/tickets')
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({
+            title: 'No dev ticket',
+            priority: TicketPriority.LOW,
+            type: TicketType.TECHNICAL,
+            projectId: isolatedProjRes.body.id,
+          })
+          .expect(200);
 
-      const res = await request(app.getHttpServer())
-        .post('/tickets')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          title: 'No dev ticket',
-          priority: TicketPriority.LOW,
-          type: TicketType.TECHNICAL,
-          projectId: isolatedProjRes.body.id,
-        })
-        .expect(200);
-
-      expect(res.body.assigneeId).toBeNull();
-
-      // Restore developer roles
-      await userRepo.query(`UPDATE users SET role = 'DEVELOPER' WHERE username != 'aa_admin'`);
+        expect(res.body.assigneeId).toBeNull();
+      } finally {
+        await userRepo.query(`UPDATE users SET role = 'DEVELOPER' WHERE username != 'aa_admin'`);
+      }
     });
 
     it('6.5: explicit assigneeId on creation skips auto-assignment', async () => {
@@ -451,16 +451,16 @@ describe('Auto-Assignment & Workload (e2e)', () => {
     it('6.11b: returns [] when no DEVELOPER-role users exist in the system', async () => {
       // Temporarily promote all DEVELOPERs to ADMIN
       await userRepo.query(`UPDATE users SET role = 'ADMIN' WHERE role = 'DEVELOPER'`);
+      try {
+        const res = await request(app.getHttpServer())
+          .get(`/projects/${wlProjId}/workload`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .expect(200);
 
-      const res = await request(app.getHttpServer())
-        .get(`/projects/${wlProjId}/workload`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .expect(200);
-
-      expect(res.body).toEqual([]);
-
-      // Restore
-      await userRepo.query(`UPDATE users SET role = 'DEVELOPER' WHERE username != 'aa_admin'`);
+        expect(res.body).toEqual([]);
+      } finally {
+        await userRepo.query(`UPDATE users SET role = 'DEVELOPER' WHERE username != 'aa_admin'`);
+      }
     });
   });
 });
