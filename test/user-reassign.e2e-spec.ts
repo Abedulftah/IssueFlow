@@ -13,7 +13,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('User ticket re-auto-assignment (e2e)', () => {
   let ctx: TestAppContext;
@@ -42,11 +41,8 @@ describe('User ticket re-auto-assignment (e2e)', () => {
     await resetDatabase(ctx.dataSource);
     devCounter = 0;
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'ra_admin', email: 'ra_admin@test.com', fullName: 'RA Admin', role: UserRole.ADMIN, password: 'secret' });
     const adminUserId = adminRes.body.id;
 

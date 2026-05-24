@@ -8,7 +8,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Projects API (e2e)', () => {
   let ctx: TestAppContext;
@@ -22,11 +21,8 @@ describe('Projects API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     const userRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'proj_admin', email: 'proj_admin@test.com', fullName: 'Proj Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = userRes.body.id;

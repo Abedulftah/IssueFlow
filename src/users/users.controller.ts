@@ -11,7 +11,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { UsersService } from './users.service';
 import { CommentsService } from '../comments/comments.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -44,7 +44,7 @@ export class UsersController {
     return this.usersService.findOne(userId);
   }
 
-  @Roles(UserRole.ADMIN)
+  @Public()
   @Post()
   @HttpCode(200)
   create(@Body() dto: CreateUserDto) {

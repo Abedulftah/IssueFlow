@@ -12,7 +12,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('AuditLog API (e2e)', () => {
   let ctx: TestAppContext;
@@ -31,12 +30,9 @@ describe('AuditLog API (e2e)', () => {
     userRepo = ctx.moduleRef.get(getRepositoryToken(User));
     auditLogRepo = ctx.moduleRef.get(getRepositoryToken(AuditLog));
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     // Create admin user
     const createRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'auditadmin', email: 'auditadmin@test.com', fullName: 'Audit Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     testUserId = createRes.body.id;

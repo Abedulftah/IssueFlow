@@ -8,7 +8,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Users API (e2e)', () => {
   let ctx: TestAppContext;
@@ -22,13 +21,9 @@ describe('Users API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    // Log in as the default seeded admin (admin/admin)
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
-    // Create test admin user
+    // Create test admin user (no auth required)
     const createRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'u_admin', email: 'u_admin@test.com', fullName: 'U Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = createRes.body.id;
@@ -39,10 +34,9 @@ describe('Users API (e2e)', () => {
       .expect(200);
     adminToken = loginRes.body.accessToken;
 
-    // Create a base dev user for 403 tests
+    // Create a base dev user for role-guarded endpoint tests
     await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${adminToken}`)
       .send({ username: 'u_dev_base', email: 'u_dev_base@test.com', fullName: 'U Dev Base', role: UserRole.DEVELOPER, password: 'secret' })
       .expect(200);
 
@@ -60,11 +54,10 @@ describe('Users API (e2e)', () => {
 
   // ── POST /users ───────────────────────────────────────────────────────────
 
-  describe('POST /users (admin-only)', () => {
+  describe('POST /users', () => {
     it('creates a DEVELOPER user and returns the expected shape', async () => {
       const res = await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           username: 'jdoe',
           email: 'jdoe@example.com',
@@ -90,7 +83,6 @@ describe('Users API (e2e)', () => {
     it('returns 409 when username is already taken', async () => {
       await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'jdoe', email: 'jdoe2@example.com', fullName: 'Jane', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(409);
     });
@@ -98,7 +90,6 @@ describe('Users API (e2e)', () => {
     it('returns 409 when email is already taken', async () => {
       await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'jdoe3', email: 'jdoe@example.com', fullName: 'Jim', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(409);
     });
@@ -106,30 +97,28 @@ describe('Users API (e2e)', () => {
     it('returns 400 when required fields are missing', async () => {
       await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'incomplete' })
         .expect(400);
     });
 
-    it('returns 401 when no token is provided', () => {
+    it('succeeds without any token', () => {
       return request(app.getHttpServer())
         .post('/users')
         .send({ username: 'noauth_user', email: 'noauth@test.com', fullName: 'No Auth', role: UserRole.DEVELOPER, password: 'secret' })
-        .expect(401);
+        .expect(200);
     });
 
-    it('returns 403 when a non-admin token is used', () => {
+    it('succeeds when called with a non-admin token', () => {
       return request(app.getHttpServer())
         .post('/users')
         .set('Authorization', `Bearer ${devBaseToken}`)
         .send({ username: 'dev_creates_user', email: 'dev_creates@test.com', fullName: 'Dev Creates', role: UserRole.DEVELOPER, password: 'secret' })
-        .expect(403);
+        .expect(200);
     });
 
     it('returns 400 when email is malformed', () => {
       return request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'bademail_user', email: 'not-an-email', fullName: 'Bad Email', role: UserRole.DEVELOPER })
         .expect(400);
     });
@@ -137,7 +126,6 @@ describe('Users API (e2e)', () => {
     it('returns 400 when role is not a valid enum value', () => {
       return request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'badrole_user', email: 'badrole@test.com', fullName: 'Bad Role', role: 'OWNER' })
         .expect(400);
     });
@@ -209,7 +197,6 @@ describe('Users API (e2e)', () => {
     beforeAll(async () => {
       const createRes = await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'u_dev', email: 'u_dev@test.com', fullName: 'U Dev', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(200);
       devUserId = createRes.body.id;
@@ -286,7 +273,6 @@ describe('Users API (e2e)', () => {
       // Create a user to delete
       const createRes = await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({ username: 'to_delete', email: 'to_delete@test.com', fullName: 'To Delete', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(200);
 
@@ -307,7 +293,6 @@ describe('Users API (e2e)', () => {
     it('invalidates the deleted user token immediately', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           username: 'self_delete',
           email: 'self_delete@test.com',
@@ -381,7 +366,6 @@ describe('Users API (e2e)', () => {
       // Create a second user that will be mentioned
       const mentionedRes = await request(app.getHttpServer())
         .post('/users')
-        .set('Authorization', `Bearer ${adminToken}`)
         .send({
           username: 'mentioned_user',
           email: 'mentioned_user@test.com',

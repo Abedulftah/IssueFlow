@@ -17,31 +17,13 @@ export interface AuthSession extends SeededUser {
   authHeader: { Authorization: string };
 }
 
-export async function getDefaultAdminToken(app: INestApplication): Promise<string> {
-  const res = await request(app.getHttpServer())
-    .post('/auth/login')
-    .send({ username: 'admin', password: 'admin' });
-  if (res.status !== 200 && res.status !== 201) {
-    throw new Error(
-      `getDefaultAdminToken failed (${res.status}): ${JSON.stringify(res.body)}`,
-    );
-  }
-  return res.body.accessToken;
-}
-
 export async function seedUser(
   app: INestApplication,
   overrides: Partial<SeededUser> = {},
-  options?: { adminToken?: string },
 ): Promise<SeededUser> {
-  let adminToken = options?.adminToken;
-  if (!adminToken) {
-    adminToken = await getDefaultAdminToken(app);
-  }
   const payload = makeUserPayload(overrides);
   const res = await request(app.getHttpServer())
     .post('/users')
-    .set('Authorization', `Bearer ${adminToken}`)
     .send(payload);
   if (res.status !== 200 && res.status !== 201) {
     throw new Error(
@@ -78,9 +60,8 @@ export async function login(
 export async function seedAndLogin(
   app: INestApplication,
   overrides: Partial<SeededUser> = {},
-  options?: { adminToken?: string },
 ): Promise<AuthSession> {
-  const user = await seedUser(app, overrides, options);
+  const user = await seedUser(app, overrides);
   const { token, authHeader } = await login(app, user.username, user.password);
   return { ...user, token, authHeader };
 }

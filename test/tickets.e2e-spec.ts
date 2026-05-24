@@ -11,7 +11,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Tickets API (e2e)', () => {
   let ctx: TestAppContext;
@@ -26,12 +25,9 @@ describe('Tickets API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     // Admin user
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'tkt_admin', email: 'tkt_admin@test.com', fullName: 'Tkt Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = adminRes.body.id;
@@ -39,7 +35,6 @@ describe('Tickets API (e2e)', () => {
     // Developer user
     const devRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'tkt_dev', email: 'tkt_dev@test.com', fullName: 'Tkt Dev', role: UserRole.DEVELOPER, password: 'secret' })
       .expect(200);
     devUserId = devRes.body.id;

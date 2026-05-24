@@ -10,7 +10,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 // Minimal valid 1×1 PNG (67 bytes)
 const TINY_PNG = Buffer.from(
@@ -40,12 +39,9 @@ describe('Attachments API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     // Create admin user
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'att_admin', email: 'att_admin@test.com', fullName: 'Att Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     const adminUserId: number = adminRes.body.id;

@@ -11,7 +11,6 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
-import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Auto-Assignment & Workload (e2e)', () => {
   let ctx: TestAppContext;
@@ -93,11 +92,8 @@ describe('Auto-Assignment & Workload (e2e)', () => {
 
     await resetDatabase(ctx.dataSource);
 
-    const defaultAdminToken = await getDefaultAdminToken(app);
-
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({ username: 'aa_admin', email: 'aa_admin@test.com', fullName: 'aa_admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = adminRes.body.id;
