@@ -21,6 +21,8 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { ActorType } from '../audit-log/enums/actor-type.enum';
 import { parseCsv, toCsvRow } from './csv.util';
 import { withCurrentUserTransaction } from '../database/current-user-transaction';
+import { Attachment } from '../attachments/attachment.entity';
+import { Comment } from '../comments/comment.entity';
 
 const CSV_EXPORT_HEADERS = ['id', 'title', 'description', 'status', 'priority', 'type', 'assigneeId'];
 
@@ -177,6 +179,8 @@ export class TicketsService {
       throw new BadRequestException('A DONE ticket cannot be deleted');
     }
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      await manager.getRepository(Attachment).softDelete({ ticketId: id });
+      await manager.getRepository(Comment).softDelete({ ticketId: id });
       await manager.getRepository(Ticket).softDelete(id);
     });
   }
@@ -193,6 +197,8 @@ export class TicketsService {
 
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Ticket).restore(id);
+      await manager.getRepository(Attachment).restore({ ticketId: id });
+      await manager.getRepository(Comment).restore({ ticketId: id });
     });
   }
 

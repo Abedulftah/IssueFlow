@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   ManyToOne,
   OneToMany,
@@ -46,6 +47,10 @@ export class Comment {
   @Exclude()
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @Exclude()
+  @DeleteDateColumn({ nullable: true, type: 'timestamptz' })
+  deletedAt: Date | null;
 
   @Exclude()
   @OneToMany(() => CommentMention, (mention) => mention.comment)

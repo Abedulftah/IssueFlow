@@ -26,7 +26,7 @@ export class UsersService {
     if (existing) {
       throw new ConflictException('Username or email already exists');
     }
-    const passwordHash = await bcrypt.hash(dto.password ?? 'secret', 10);
+    const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = this.usersRepository.create({ ...dto, passwordHash });
     return withCurrentUserTransaction(this.dataSource, (manager) =>
       manager.getRepository(User).save(user),

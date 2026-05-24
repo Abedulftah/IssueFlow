@@ -10,6 +10,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 // Minimal valid 1×1 PNG (67 bytes)
 const TINY_PNG = Buffer.from(
@@ -22,6 +23,12 @@ const TINY_PNG = Buffer.from(
 // Tiny plain-text file
 const TINY_TXT = Buffer.from('hello world');
 
+// Minimal JPEG SOI + EOI markers (a valid but empty JPEG)
+const TINY_JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+
+// Minimal PDF header
+const TINY_PDF = Buffer.from('%PDF-1.4\n%%EOF\n');
+
 describe('Attachments API (e2e)', () => {
   let ctx: TestAppContext;
   let app: INestApplication;
@@ -33,10 +40,13 @@ describe('Attachments API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     // Create admin user
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'att_admin', email: 'att_admin@test.com', fullName: 'Att Admin', role: UserRole.ADMIN })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'att_admin', email: 'att_admin@test.com', fullName: 'Att Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     const adminUserId: number = adminRes.body.id;
 
@@ -113,6 +123,36 @@ describe('Attachments API (e2e)', () => {
 
       expect(res.body.contentType).toBe('text/plain');
       expect(res.body.filename).toBe('notes.txt');
+    });
+
+    it('uploads a JPEG and returns metadata', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/tickets/${ticketId}/attachments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', TINY_JPEG, { filename: 'photo.jpg', contentType: 'image/jpeg' })
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: expect.any(Number),
+        filename: 'photo.jpg',
+        contentType: 'image/jpeg',
+        ticketId,
+      });
+    });
+
+    it('uploads a PDF and returns metadata', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/tickets/${ticketId}/attachments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', TINY_PDF, { filename: 'report.pdf', contentType: 'application/pdf' })
+        .expect(200);
+
+      expect(res.body).toMatchObject({
+        id: expect.any(Number),
+        filename: 'report.pdf',
+        contentType: 'application/pdf',
+        ticketId,
+      });
     });
 
     it('returns 400 for a disallowed MIME type (image/gif)', () => {

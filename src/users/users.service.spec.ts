@@ -73,32 +73,30 @@ describe('UsersService', () => {
       expect(result).toBe(entity);
     });
 
-    it('defaults to hashing "secret" when no password provided', async () => {
-      repo.findOne.mockResolvedValue(null);
-      const entity = { id: 2 } as User;
-      repo.create.mockReturnValue(entity);
-      repo.save.mockResolvedValue(entity);
-
-      await service.create({
-        username: 'jane',
-        email: 'jane@example.com',
-        fullName: 'Jane',
-        role: UserRole.ADMIN,
-      });
-
-      const saved = repo.create.mock.calls[0][0];
-      expect(await bcrypt.compare('secret', saved.passwordHash)).toBe(true);
-    });
-
-    it('throws ConflictException when username or email already exists', async () => {
+    it('throws ConflictException when username is already taken', async () => {
       repo.findOne.mockResolvedValue({ id: 1 } as User);
 
       await expect(
         service.create({
           username: 'jdoe',
+          email: 'unique@example.com',
+          fullName: 'John',
+          role: UserRole.DEVELOPER,
+          password: 'mypass',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws ConflictException when email is already taken', async () => {
+      repo.findOne.mockResolvedValue({ id: 1 } as User);
+
+      await expect(
+        service.create({
+          username: 'unique_user',
           email: 'jdoe@example.com',
           fullName: 'John',
           role: UserRole.DEVELOPER,
+          password: 'mypass',
         }),
       ).rejects.toThrow(ConflictException);
     });

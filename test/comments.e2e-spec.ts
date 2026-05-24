@@ -11,6 +11,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Comments API (e2e)', () => {
   let ctx: TestAppContext;
@@ -27,21 +28,26 @@ describe('Comments API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'cmt_admin', email: 'cmt_admin@test.com', fullName: 'Cmt Admin', role: UserRole.ADMIN })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'cmt_admin', email: 'cmt_admin@test.com', fullName: 'Cmt Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = adminRes.body.id;
 
     const authorRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'cmt_author', email: 'cmt_author@test.com', fullName: 'Cmt Author', role: UserRole.DEVELOPER })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'cmt_author', email: 'cmt_author@test.com', fullName: 'Cmt Author', role: UserRole.DEVELOPER, password: 'secret' })
       .expect(200);
     authorUserId = authorRes.body.id;
 
     const mentionRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'jdoe', email: 'jdoe@test.com', fullName: 'John Doe', role: UserRole.DEVELOPER })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'jdoe', email: 'jdoe@test.com', fullName: 'John Doe', role: UserRole.DEVELOPER, password: 'secret' })
       .expect(200);
     mentionedUserId = mentionRes.body.id;
 
@@ -77,7 +83,7 @@ describe('Comments API (e2e)', () => {
     it('returns 401 without token', () => {
       return request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
-        .send({ authorId: authorUserId, content: 'Hello' })
+        .send({ content: 'Hello' })
         .expect(401);
     });
 
@@ -85,13 +91,13 @@ describe('Comments API (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Simple comment' })
+        .send({ content: 'Simple comment' })
         .expect(200);
 
       expect(res.body).toMatchObject({
         id: expect.any(Number),
         ticketId,
-        authorId: authorUserId,
+        authorId: adminUserId,
         content: 'Simple comment',
         mentionedUsers: expect.any(Array),
       });
@@ -103,7 +109,7 @@ describe('Comments API (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Hey @jdoe, please review!' })
+        .send({ content: 'Hey @jdoe, please review!' })
         .expect(200);
 
       expect(res.body.mentionedUsers).toEqual(
@@ -117,23 +123,30 @@ describe('Comments API (e2e)', () => {
       await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Hey @ghost_user please help' })
+        .send({ content: 'Hey @ghost_user please help' })
         .expect(400);
+    });
+
+    it('matches @mention case-insensitively (@JDOE resolves to user jdoe)', async () => {
+      // Requirement: "Mentions are case-insensitive when matching usernames"
+      const res = await request(app.getHttpServer())
+        .post(`/tickets/${ticketId}/comments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ content: 'Hey @JDOE, please review!' })
+        .expect(200);
+
+      expect(res.body.mentionedUsers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: mentionedUserId, username: 'jdoe' }),
+        ]),
+      );
     });
 
     it('returns 404 when ticketId does not exist', async () => {
       return request(app.getHttpServer())
         .post('/tickets/999999/comments')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'x' })
-        .expect(404);
-    });
-
-    it('returns 404 when authorId does not exist', async () => {
-      return request(app.getHttpServer())
-        .post(`/tickets/${ticketId}/comments`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: 999999, content: 'x' })
+        .send({ content: 'x' })
         .expect(404);
     });
   });
@@ -182,7 +195,7 @@ describe('Comments API (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Original @jdoe' })
+        .send({ content: 'Original @jdoe' })
         .expect(200);
       commentId = res.body.id;
     });
@@ -216,7 +229,7 @@ describe('Comments API (e2e)', () => {
       const createRes = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: '@jdoe please check' })
+        .send({ content: '@jdoe please check' })
         .expect(200);
       const id = createRes.body.id;
 
@@ -240,7 +253,8 @@ describe('Comments API (e2e)', () => {
       // create a second user to mention
       const userRes = await request(app.getHttpServer())
         .post('/users')
-        .send({ username: 'asmith', email: 'asmith@test.com', fullName: 'Alice Smith', role: UserRole.DEVELOPER })
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ username: 'asmith', email: 'asmith@test.com', fullName: 'Alice Smith', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(200);
       const asmithId = userRes.body.id;
 
@@ -248,7 +262,7 @@ describe('Comments API (e2e)', () => {
       const createRes = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'No mentions initially' })
+        .send({ content: 'No mentions initially' })
         .expect(200);
       const id = createRes.body.id;
 
@@ -294,7 +308,7 @@ describe('Comments API (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Lock test comment' })
+        .send({ content: 'Lock test comment' })
         .expect(200);
       commentId = res.body.id;
     });
@@ -336,7 +350,7 @@ describe('Comments API (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: authorUserId, content: 'Delete me' })
+        .send({ content: 'Delete me' })
         .expect(200);
       commentId = res.body.id;
     });

@@ -13,6 +13,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('User ticket re-auto-assignment (e2e)', () => {
   let ctx: TestAppContext;
@@ -41,9 +42,12 @@ describe('User ticket re-auto-assignment (e2e)', () => {
     await resetDatabase(ctx.dataSource);
     devCounter = 0;
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'ra_admin', email: 'ra_admin@test.com', fullName: 'RA Admin', role: UserRole.ADMIN });
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'ra_admin', email: 'ra_admin@test.com', fullName: 'RA Admin', role: UserRole.ADMIN, password: 'secret' });
     const adminUserId = adminRes.body.id;
 
     const loginRes = await request(app.getHttpServer())
@@ -65,11 +69,15 @@ describe('User ticket re-auto-assignment (e2e)', () => {
       email: `ra_dev_${devCounter}@test.com`,
       fullName: `RA Dev ${devCounter}`,
       role: UserRole.DEVELOPER,
+      password: 'secret',
     };
   }
 
   async function createDev(): Promise<number> {
-    const res = await request(app.getHttpServer()).post('/users').send(nextDev());
+    const res = await request(app.getHttpServer())
+      .post('/users')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send(nextDev());
     return res.body.id;
   }
 
@@ -195,13 +203,19 @@ describe('User ticket re-auto-assignment (e2e)', () => {
   describe('DELETE /users/:id — comment authorId nullified', () => {
     it('sets authorId to null on comments when the author is deleted', async () => {
       const dev1 = await createDev();
+      const dev1Username = `ra_dev_${devCounter}`;
+
+      const dev1LoginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: dev1Username, password: 'secret' });
+      const dev1Token = dev1LoginRes.body.accessToken;
 
       const ticketId = await createTicket(dev1);
 
       const commentRes = await request(app.getHttpServer())
         .post(`/tickets/${ticketId}/comments`)
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({ authorId: dev1, content: 'This comment will lose its author' });
+        .set('Authorization', `Bearer ${dev1Token}`)
+        .send({ content: 'This comment will lose its author' });
       const commentId = commentRes.body.id;
 
       await request(app.getHttpServer())

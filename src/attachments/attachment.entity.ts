@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   ManyToOne,
   PrimaryGeneratedColumn,
@@ -37,4 +38,8 @@ export class Attachment {
   @Exclude()
   @CreateDateColumn()
   createdAt: Date;
+
+  @Exclude()
+  @DeleteDateColumn({ nullable: true, type: 'timestamptz' })
+  deletedAt: Date | null;
 }

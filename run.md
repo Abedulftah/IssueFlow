@@ -74,7 +74,85 @@ The API is available at `http://localhost:3000`.
 
 ---
 
-## 5. Run Tests
+## 5. First Login & User Management
+
+On first startup the system automatically creates a default admin account:
+
+| Field    | Value             |
+|----------|-------------------|
+| Username | `admin`           |
+| Email    | `admin@admin.com` |
+| Password | `admin`           |
+| Role     | `ADMIN`           |
+
+### Step 1 — Log in as admin
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin"}'
+```
+
+Response:
+
+```json
+{
+  "accessToken": "<YOUR_JWT_TOKEN>",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+Copy the `accessToken` value — you will use it in the `Authorization` header for all subsequent requests.
+
+### Step 2 — Create a new user (admin-only)
+
+Only users with the `ADMIN` role can create new accounts. Pass the token from Step 1:
+
+```bash
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <YOUR_JWT_TOKEN>" \
+  -d '{
+    "username": "jdoe",
+    "email": "jdoe@example.com",
+    "fullName": "John Doe",
+    "role": "DEVELOPER",
+    "password": "changeme"
+  }'
+```
+
+Valid values for `role`: `ADMIN`, `DEVELOPER`.
+
+### Step 3 — Log in as the new user
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "jdoe", "password": "changeme"}'
+```
+
+Use the returned `accessToken` to make requests as that user.
+
+### Step 4 — Verify your identity
+
+```bash
+curl http://localhost:3000/auth/me \
+  -H "Authorization: Bearer <YOUR_JWT_TOKEN>"
+```
+
+### Step 5 — Log out (invalidate the token)
+
+```bash
+curl -X POST http://localhost:3000/auth/logout \
+  -H "Authorization: Bearer <YOUR_JWT_TOKEN>"
+```
+
+> **Security note:** Change the default admin password as soon as possible by promoting a personal admin account and deleting or locking the default one.
+
+---
+
+## 6. Run Tests
 
 ### Unit tests
 
@@ -104,7 +182,7 @@ npm run test:cov
 
 ---
 
-## 6. Lint
+## 7. Lint
 
 Auto-fix linting errors:
 
@@ -114,7 +192,7 @@ npm run lint
 
 ---
 
-## 7. Stop Services
+## 8. Stop Services
 
 ```bash
 docker compose down

@@ -1,8 +1,11 @@
 import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Not, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Project } from './project.entity';
+import { Ticket } from '../tickets/ticket.entity';
+import { Attachment } from '../attachments/attachment.entity';
+import { Comment } from '../comments/comment.entity';
 import { UsersService } from '../users/users.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -58,6 +61,16 @@ export class ProjectsService {
   async softDelete(id: number): Promise<void> {
     await this.findOne(id); // throws 404 if not found or already soft-deleted
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
+      const tickets = await manager.getRepository(Ticket).find({
+        where: { projectId: id },
+        select: ['id'],
+      });
+      const ticketIds = tickets.map((t) => t.id);
+      if (ticketIds.length > 0) {
+        await manager.getRepository(Attachment).softDelete({ ticketId: In(ticketIds) });
+        await manager.getRepository(Comment).softDelete({ ticketId: In(ticketIds) });
+        await manager.getRepository(Ticket).softDelete({ projectId: id });
+      }
       await manager.getRepository(Project).softDelete(id);
     });
   }
@@ -68,6 +81,16 @@ export class ProjectsService {
     if (!project.deletedAt) throw new BadRequestException('Project is not deleted');
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Project).restore(id);
+      await manager.getRepository(Ticket).restore({ projectId: id });
+      const tickets = await manager.getRepository(Ticket).find({
+        where: { projectId: id },
+        select: ['id'],
+      });
+      const ticketIds = tickets.map((t) => t.id);
+      if (ticketIds.length > 0) {
+        await manager.getRepository(Attachment).restore({ ticketId: In(ticketIds) });
+        await manager.getRepository(Comment).restore({ ticketId: In(ticketIds) });
+      }
     });
   }
 }

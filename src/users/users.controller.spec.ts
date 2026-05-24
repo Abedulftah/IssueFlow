@@ -29,7 +29,7 @@ describe('UsersController', () => {
     service = module.get(UsersService);
   });
 
-  it('create — returns user from service (passwordHash excluded by global interceptor)', async () => {
+  it('create — admin-only; returns user from service (passwordHash excluded by global interceptor)', async () => {
     const user = Object.assign(new User(), {
       id: 1,
       username: 'jdoe',
@@ -45,6 +45,7 @@ describe('UsersController', () => {
       email: 'jdoe@example.com',
       fullName: 'John Doe',
       role: UserRole.DEVELOPER,
+      password: 'mypass',
     });
 
     expect(result).toBe(user);
@@ -64,10 +65,26 @@ describe('UsersController', () => {
     expect(service.findOne).toHaveBeenCalledWith(5);
   });
 
-  it('update — delegates to service', async () => {
+  it('update — admin can promote a user', async () => {
     service.update.mockResolvedValue({ id: 1, role: UserRole.ADMIN } as User);
-    await controller.update(1, { role: UserRole.ADMIN });
+    const req = { user: { role: UserRole.ADMIN } };
+    await controller.update(1, { role: UserRole.ADMIN }, req as any);
     expect(service.update).toHaveBeenCalledWith(1, { role: UserRole.ADMIN });
+  });
+
+  it('update — non-admin cannot change role (ForbiddenException)', async () => {
+    const req = { user: { role: UserRole.DEVELOPER } };
+    await expect(
+      controller.update(1, { role: UserRole.ADMIN }, req as any),
+    ).rejects.toThrow('Only admins can promote users');
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it('update — non-admin can update fullName without role', async () => {
+    service.update.mockResolvedValue({ id: 1, fullName: 'New Name' } as User);
+    const req = { user: { role: UserRole.DEVELOPER } };
+    await controller.update(1, { fullName: 'New Name' }, req as any);
+    expect(service.update).toHaveBeenCalledWith(1, { fullName: 'New Name' });
   });
 
   it('remove — delegates to service', async () => {

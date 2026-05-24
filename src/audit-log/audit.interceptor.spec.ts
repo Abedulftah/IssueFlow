@@ -1,6 +1,7 @@
 import { ExecutionContext, CallHandler } from '@nestjs/common';
-import { of, lastValueFrom } from 'rxjs';
+import { of } from 'rxjs';
 import { AuditInterceptor } from './audit.interceptor';
+import * as currentUserStore from '../database/current-user-store';
 
 const makeContext = (userId?: number): ExecutionContext =>
   ({
@@ -17,27 +18,36 @@ const makeHandler = (): CallHandler => ({
 
 describe('AuditInterceptor', () => {
   let interceptor: AuditInterceptor;
+  let runWithUserSpy: jest.SpyInstance;
 
   beforeEach(() => {
     interceptor = new AuditInterceptor();
+    // Spy on runWithUser but still execute the callback so handle() is called
+    runWithUserSpy = jest
+      .spyOn(currentUserStore, 'runWithUser')
+      .mockImplementation((_userId, fn) => fn());
   });
 
-  it('passes through authenticated requests unchanged', (done) => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('calls runWithUser with the authenticated userId', (done) => {
     const context = makeContext(42);
     const handler = makeHandler();
 
     interceptor.intercept(context, handler).subscribe(() => {
-      expect(handler.handle).toHaveBeenCalled();
+      expect(runWithUserSpy).toHaveBeenCalledWith(42, expect.any(Function));
       done();
     });
   });
 
-  it('passes through unauthenticated requests unchanged', (done) => {
+  it('calls runWithUser with undefined when request has no user', (done) => {
     const context = makeContext(undefined);
     const handler = makeHandler();
 
     interceptor.intercept(context, handler).subscribe(() => {
-      expect(handler.handle).toHaveBeenCalled();
+      expect(runWithUserSpy).toHaveBeenCalledWith(undefined, expect.any(Function));
       done();
     });
   });

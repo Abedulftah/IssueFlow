@@ -7,26 +7,33 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Auth API (e2e)', () => {
   let ctx: TestAppContext;
   let app: INestApplication;
   let adminToken: string;
   let adminUserId: number;
+  let defaultAdminToken: string;
 
   beforeAll(async () => {
     ctx = await bootstrapTestApp();
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
-    // Create a user to test login
+    // Default admin (admin/admin) is seeded by resetDatabase
+    defaultAdminToken = await getDefaultAdminToken(app);
+
+    // Create a named admin user for the auth tests
     const res = await request(app.getHttpServer())
       .post('/users')
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
       .send({
         username: 'auth_admin',
         email: 'auth_admin@test.com',
         fullName: 'Auth Admin',
         role: UserRole.ADMIN,
+        password: 'secret',
       })
       .expect(200);
 
@@ -158,11 +165,13 @@ describe('Auth API (e2e)', () => {
     it('rejects a deleted user token on other protected routes', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/users')
+        .set('Authorization', `Bearer ${defaultAdminToken}`)
         .send({
           username: 'auth_deleted_user',
           email: 'auth_deleted_user@test.com',
           fullName: 'Auth Deleted User',
           role: UserRole.DEVELOPER,
+          password: 'secret',
         })
         .expect(200);
 
@@ -189,11 +198,13 @@ describe('Auth API (e2e)', () => {
     it('rejects an old token after the user is recreated', async () => {
       const createRes = await request(app.getHttpServer())
         .post('/users')
+        .set('Authorization', `Bearer ${defaultAdminToken}`)
         .send({
           username: 'auth_recreated_user',
           email: 'auth_recreated_user@test.com',
           fullName: 'Auth Recreated User',
           role: UserRole.DEVELOPER,
+          password: 'secret',
         })
         .expect(200);
 
@@ -213,11 +224,13 @@ describe('Auth API (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/users')
+        .set('Authorization', `Bearer ${defaultAdminToken}`)
         .send({
           username: 'auth_recreated_user',
           email: 'auth_recreated_user@test.com',
           fullName: 'Auth Recreated User Again',
           role: UserRole.DEVELOPER,
+          password: 'secret',
         })
         .expect(200);
 

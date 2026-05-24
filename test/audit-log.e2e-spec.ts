@@ -12,6 +12,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('AuditLog API (e2e)', () => {
   let ctx: TestAppContext;
@@ -30,10 +31,13 @@ describe('AuditLog API (e2e)', () => {
     userRepo = ctx.moduleRef.get(getRepositoryToken(User));
     auditLogRepo = ctx.moduleRef.get(getRepositoryToken(AuditLog));
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     // Create admin user
     const createRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'auditadmin', email: 'auditadmin@test.com', fullName: 'Audit Admin', role: UserRole.ADMIN })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'auditadmin', email: 'auditadmin@test.com', fullName: 'Audit Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     testUserId = createRes.body.id;
 
@@ -135,7 +139,8 @@ describe('AuditLog API (e2e)', () => {
 
       await request(app.getHttpServer())
         .post('/users')
-        .send({ username: 'new_audit_user', email: 'new_audit@test.com', fullName: 'New Audit', role: UserRole.DEVELOPER })
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ username: 'new_audit_user', email: 'new_audit@test.com', fullName: 'New Audit', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(200);
 
       const after = await auditLogRepo.count({ where: { action: 'CREATE', entityType: 'USER' } });
@@ -233,7 +238,8 @@ describe('AuditLog API (e2e)', () => {
       // Ensure a developer user exists and is linked to the project via an explicit ticket
       const devRes = await request(app.getHttpServer())
         .post('/users')
-        .send({ username: 'aa_dev', email: 'aa_dev@test.com', fullName: 'AA Dev', role: UserRole.DEVELOPER })
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ username: 'aa_dev', email: 'aa_dev@test.com', fullName: 'AA Dev', role: UserRole.DEVELOPER, password: 'secret' })
         .expect(200);
       await request(app.getHttpServer())
         .post('/tickets')
@@ -278,6 +284,79 @@ describe('AuditLog API (e2e)', () => {
 
       const afterCount = await auditLogRepo.count({ where: { action: 'AUTO_ASSIGN' } });
       expect(afterCount).toBe(beforeCount);
+    });
+  });
+
+  // ── RESTORE audit entries ─────────────────────────────────────────────────
+
+  describe('RESTORE audit entry', () => {
+    it('records a RESTORE entry when a soft-deleted ticket is restored', async () => {
+      // Create a ticket
+      const tktRes = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ title: 'Restore audit ticket', priority: TicketPriority.LOW, type: TicketType.TECHNICAL, projectId: testProjectId })
+        .expect(200);
+      const tktId = tktRes.body.id;
+
+      // Soft-delete it
+      await request(app.getHttpServer())
+        .delete(`/tickets/${tktId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // Restore it
+      await request(app.getHttpServer())
+        .post(`/tickets/${tktId}/restore`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // Verify RESTORE audit log entry exists
+      const res = await request(app.getHttpServer())
+        .get(`/audit-logs?action=RESTORE&entityType=TICKET&entityId=${tktId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(res.body.length).toBeGreaterThanOrEqual(1);
+      const entry = res.body[0];
+      expect(entry.action).toBe('RESTORE');
+      expect(entry.entityType).toBe('TICKET');
+      expect(entry.entityId).toBe(tktId);
+      expect(entry.performedBy).toBe(testUserId);
+    });
+
+    it('records a RESTORE entry when a soft-deleted project is restored', async () => {
+      // Create a project
+      const projRes = await request(app.getHttpServer())
+        .post('/projects')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: 'Restore Audit Project', description: 'x', ownerId: testUserId })
+        .expect(200);
+      const projId = projRes.body.id;
+
+      // Soft-delete it
+      await request(app.getHttpServer())
+        .delete(`/projects/${projId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // Restore it
+      await request(app.getHttpServer())
+        .post(`/projects/${projId}/restore`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      // Verify RESTORE audit log entry exists
+      const res = await request(app.getHttpServer())
+        .get(`/audit-logs?action=RESTORE&entityType=PROJECT&entityId=${projId}`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .expect(200);
+
+      expect(res.body.length).toBeGreaterThanOrEqual(1);
+      const entry = res.body[0];
+      expect(entry.action).toBe('RESTORE');
+      expect(entry.entityType).toBe('PROJECT');
+      expect(entry.entityId).toBe(projId);
     });
   });
 

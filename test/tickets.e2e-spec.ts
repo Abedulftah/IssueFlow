@@ -11,6 +11,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Tickets API (e2e)', () => {
   let ctx: TestAppContext;
@@ -25,17 +26,21 @@ describe('Tickets API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     // Admin user
     const adminRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'tkt_admin', email: 'tkt_admin@test.com', fullName: 'Tkt Admin', role: UserRole.ADMIN })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'tkt_admin', email: 'tkt_admin@test.com', fullName: 'Tkt Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
     adminUserId = adminRes.body.id;
 
     // Developer user
     const devRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'tkt_dev', email: 'tkt_dev@test.com', fullName: 'Tkt Dev', role: UserRole.DEVELOPER })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'tkt_dev', email: 'tkt_dev@test.com', fullName: 'Tkt Dev', role: UserRole.DEVELOPER, password: 'secret' })
       .expect(200);
     devUserId = devRes.body.id;
 
@@ -564,6 +569,99 @@ describe('Tickets API (e2e)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .field('projectId', String(projectId))
         .expect(400);
+    });
+
+    it('handles quoted fields that contain commas', async () => {
+      // Requirement: "The CSV format must handle commas and quotes inside field values correctly"
+      const csvContent = [
+        'title,description,status,priority,type',
+        '"Fix login, logout bug","Affects the ""remember me"" flow",TODO,HIGH,BUG',
+      ].join('\n');
+
+      const res = await request(app.getHttpServer())
+        .post('/tickets/import')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('projectId', String(projectId))
+        .attach('file', Buffer.from(csvContent), { filename: 'quoted.csv', contentType: 'text/csv' })
+        .expect(200);
+
+      expect(res.body.created).toBe(1);
+      expect(res.body.failed).toBe(0);
+    });
+
+    it('handles Windows CRLF line endings in the uploaded CSV', async () => {
+      const csvContent = [
+        'title,description,status,priority,type',
+        'CRLF ticket 1,desc,TODO,LOW,TECHNICAL',
+        'CRLF ticket 2,desc,TODO,MEDIUM,BUG',
+      ].join('\r\n');
+
+      const res = await request(app.getHttpServer())
+        .post('/tickets/import')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('projectId', String(projectId))
+        .attach('file', Buffer.from(csvContent), { filename: 'crlf.csv', contentType: 'text/csv' })
+        .expect(200);
+
+      expect(res.body.created).toBe(2);
+      expect(res.body.failed).toBe(0);
+    });
+
+    it('returns all rows as failed when none of the required columns are present', async () => {
+      const csvContent = ['notes', 'some random note', 'another note'].join('\n');
+
+      const res = await request(app.getHttpServer())
+        .post('/tickets/import')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .field('projectId', String(projectId))
+        .attach('file', Buffer.from(csvContent), { filename: 'bad-cols.csv', contentType: 'text/csv' })
+        .expect(200);
+
+      expect(res.body.created).toBe(0);
+      expect(res.body.failed).toBeGreaterThan(0);
+    });
+
+    it('returns 400 when projectId form field is missing', () => {
+      const csvContent = 'title,priority,type\nSome ticket,LOW,TECHNICAL';
+      return request(app.getHttpServer())
+        .post('/tickets/import')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', Buffer.from(csvContent), { filename: 'no-project.csv', contentType: 'text/csv' })
+        .expect(400);
+    });
+  });
+
+  // ── GET /tickets/export — soft-deleted tickets excluded ───────────────────
+
+  describe('GET /tickets/export — soft-deleted tickets excluded', () => {
+    it('exported CSV does not include soft-deleted tickets', async () => {
+      // Create a ticket that will be soft-deleted
+      const toDeleteRes = await request(app.getHttpServer())
+        .post('/tickets')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          title: 'SHOULD_NOT_APPEAR_IN_EXPORT',
+          priority: 'LOW',
+          type: 'TECHNICAL',
+          projectId,
+        })
+        .expect(200);
+      const deletedId = toDeleteRes.body.id;
+
+      // Soft-delete it
+      await request(app.getHttpServer())
+        .delete(`/tickets/${deletedId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Export
+      const exportRes = await request(app.getHttpServer())
+        .get(`/tickets/export?projectId=${projectId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(exportRes.text).not.toContain('SHOULD_NOT_APPEAR_IN_EXPORT');
+      expect(exportRes.text).not.toContain(String(deletedId));
     });
   });
 });

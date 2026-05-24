@@ -3,6 +3,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Project } from './project.entity';
+import { Ticket } from '../tickets/ticket.entity';
+import { Attachment } from '../attachments/attachment.entity';
+import { Comment } from '../comments/comment.entity';
 import { ProjectsService } from './projects.service';
 import { UsersService } from '../users/users.service';
 
@@ -14,6 +17,10 @@ describe('ProjectsService', () => {
   let repo: jest.Mocked<Pick<Repository<Project>, 'create' | 'save' | 'find' | 'findOne' | 'softDelete' | 'restore'>>;
   let usersService: jest.Mocked<UsersService>;
 
+  let ticketRepo: { find: jest.Mock; softDelete: jest.Mock; restore: jest.Mock };
+  let attachmentRepo: { softDelete: jest.Mock; restore: jest.Mock };
+  let commentRepo: { softDelete: jest.Mock; restore: jest.Mock };
+
   beforeEach(async () => {
     const repoValue = {
       create: jest.fn(),
@@ -24,11 +31,32 @@ describe('ProjectsService', () => {
       restore: jest.fn().mockResolvedValue(undefined),
     };
 
+    ticketRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
+    };
+
+    attachmentRepo = {
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
+    };
+
+    commentRepo = {
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      restore: jest.fn().mockResolvedValue(undefined),
+    };
+
     const dataSource = {
       transaction: jest.fn(async (cb: (manager: unknown) => unknown) =>
         cb({
           query: jest.fn().mockResolvedValue(undefined),
-          getRepository: () => repoValue,
+          getRepository: (entity: unknown) => {
+            if (entity === Ticket) return ticketRepo;
+            if (entity === Attachment) return attachmentRepo;
+            if (entity === Comment) return commentRepo;
+            return repoValue;
+          },
         }),
       ),
     };
@@ -143,10 +171,22 @@ describe('ProjectsService', () => {
       expect(repo.softDelete).toHaveBeenCalledWith(1);
     });
 
-    it('does NOT call softDelete on tickets (no cascade)', async () => {
+    it('does not cascade to tickets when project has no tickets', async () => {
       repo.findOne.mockResolvedValue(mockProject());
+      ticketRepo.find.mockResolvedValue([]);
       await service.softDelete(1);
-      expect(repo.softDelete).toHaveBeenCalledTimes(1);
+      expect(ticketRepo.softDelete).not.toHaveBeenCalled();
+      expect(attachmentRepo.softDelete).not.toHaveBeenCalled();
+      expect(commentRepo.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('cascades softDelete to tickets, attachments and comments when project has tickets', async () => {
+      repo.findOne.mockResolvedValue(mockProject());
+      ticketRepo.find.mockResolvedValue([{ id: 10 }, { id: 11 }]);
+      await service.softDelete(1);
+      expect(ticketRepo.softDelete).toHaveBeenCalledWith({ projectId: 1 });
+      expect(attachmentRepo.softDelete).toHaveBeenCalled();
+      expect(commentRepo.softDelete).toHaveBeenCalled();
     });
 
   });
@@ -164,8 +204,10 @@ describe('ProjectsService', () => {
 
     it('calls restore on the repository when project is soft-deleted', async () => {
       repo.findOne.mockResolvedValue(mockProject({ deletedAt: new Date() }));
+      ticketRepo.find.mockResolvedValue([]);
       await service.restore(1);
       expect(repo.restore).toHaveBeenCalledWith(1);
+      expect(ticketRepo.restore).toHaveBeenCalledWith({ projectId: 1 });
     });
 
   });

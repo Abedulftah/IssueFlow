@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,7 +14,7 @@ import { UpdateCommentDto } from './dto/update-comment.dto';
 import { TicketsService } from '../tickets/tickets.service';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
-import { User } from '../users/user.entity';
+import { User, UserRole } from '../users/user.entity';
 import { extractMentions } from './mentions.util';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -41,9 +42,9 @@ export class CommentsService {
     return comments.map(this.populateMentionedUsers);
   }
 
-  async create(ticketId: number, dto: CreateCommentDto): Promise<Comment> {
+  async create(ticketId: number, dto: CreateCommentDto, authorId: number): Promise<Comment> {
     await this.ticketsService.findOne(ticketId);
-    await this.usersService.findOne(dto.authorId);
+    await this.usersService.findOne(authorId);
 
     const usernames = extractMentions(dto.content);
     const mentionedUsers = await this.resolveMentions(usernames);
@@ -51,7 +52,7 @@ export class CommentsService {
 
     const comment = this.commentsRepository.create({
       ticketId,
-      authorId: dto.authorId,
+      authorId,
       content: dto.content,
     });
     const saved = await withCurrentUserTransaction(this.dataSource, async (manager) => {
@@ -77,7 +78,7 @@ export class CommentsService {
       fullName: u.fullName,
     }));
 
-    this.dispatchMentionEmails(mentionedUsers, dto.authorId, ticketId, dto.content);
+    this.dispatchMentionEmails(mentionedUsers, authorId, ticketId, dto.content);
 
     return saved;
   }
@@ -86,9 +87,15 @@ export class CommentsService {
     ticketId: number,
     commentId: number,
     dto: UpdateCommentDto,
+    requesterId: number,
+    requesterRole: UserRole,
   ): Promise<Comment> {
     await this.ticketsService.findOne(ticketId);
     const comment = await this.findComment(ticketId, commentId);
+
+    if (requesterRole !== UserRole.ADMIN && comment.authorId !== requesterId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
 
     if (dto.version !== undefined && comment.version !== dto.version) {
       throw new ConflictException('Comment was modified by another request');
@@ -150,9 +157,19 @@ export class CommentsService {
     return saved;
   }
 
-  async remove(ticketId: number, commentId: number): Promise<void> {
+  async remove(
+    ticketId: number,
+    commentId: number,
+    requesterId: number,
+    requesterRole: UserRole,
+  ): Promise<void> {
     await this.ticketsService.findOne(ticketId);
     const comment = await this.findComment(ticketId, commentId);
+
+    if (requesterRole !== UserRole.ADMIN && comment.authorId !== requesterId) {
+      throw new ForbiddenException('You can only delete your own comments');
+    }
+
     await withCurrentUserTransaction(this.dataSource, async (manager) => {
       await manager.getRepository(Comment).remove(comment);
     });

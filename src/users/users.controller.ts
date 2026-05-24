@@ -2,19 +2,22 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
   ParseIntPipe,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
-import { Public } from '../auth/decorators/public.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { UsersService } from './users.service';
 import { CommentsService } from '../comments/comments.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { MentionsQueryDto } from './dto/mentions-query.dto';
+import { UserRole } from './user.entity';
 
 @Controller('users')
 export class UsersController {
@@ -41,7 +44,7 @@ export class UsersController {
     return this.usersService.findOne(userId);
   }
 
-  @Public()
+  @Roles(UserRole.ADMIN)
   @Post()
   @HttpCode(200)
   create(@Body() dto: CreateUserDto) {
@@ -53,7 +56,11 @@ export class UsersController {
   async update(
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: UpdateUserDto,
+    @Req() req: any,
   ): Promise<void> {
+    if (dto.role !== undefined && req.user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admins can promote users');
+    }
     await this.usersService.update(userId, dto);
   }
 

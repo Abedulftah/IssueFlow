@@ -14,6 +14,7 @@ import {
   TestAppContext,
 } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 const PAST_DATE = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
 
@@ -35,9 +36,12 @@ describe('Ticket Auto-Escalation (e2e)', () => {
 
     await resetDatabase(ctx.dataSource);
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     const userRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'esc_admin', email: 'esc_admin@test.com', fullName: 'Esc Admin', role: UserRole.ADMIN });
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'esc_admin', email: 'esc_admin@test.com', fullName: 'Esc Admin', role: UserRole.ADMIN, password: 'secret' });
     const adminUserId: number = userRes.body.id;
 
     const loginRes = await request(app.getHttpServer())

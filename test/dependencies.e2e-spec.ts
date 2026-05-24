@@ -4,6 +4,7 @@ import { UserRole } from '../src/users/user.entity';
 import { TicketPriority, TicketType } from '../src/tickets/enums';
 import { bootstrapTestApp, closeTestApp, TestAppContext } from './support/test-app.bootstrap';
 import { resetDatabase } from './support/db-reset.helper';
+import { getDefaultAdminToken } from './support/auth.helper';
 
 describe('Dependencies API (e2e)', () => {
   let ctx: TestAppContext;
@@ -26,9 +27,12 @@ describe('Dependencies API (e2e)', () => {
     app = ctx.app;
     await resetDatabase(ctx.dataSource);
 
+    const defaultAdminToken = await getDefaultAdminToken(app);
+
     const userRes = await request(app.getHttpServer())
       .post('/users')
-      .send({ username: 'dep_admin', email: 'dep_admin@test.com', fullName: 'Dep Admin', role: UserRole.ADMIN })
+      .set('Authorization', `Bearer ${defaultAdminToken}`)
+      .send({ username: 'dep_admin', email: 'dep_admin@test.com', fullName: 'Dep Admin', role: UserRole.ADMIN, password: 'secret' })
       .expect(200);
 
     const loginRes = await request(app.getHttpServer())
@@ -386,6 +390,82 @@ describe('Dependencies API (e2e)', () => {
         .post(`/tickets/${blocked}/dependencies`)
         .set('Authorization', `Bearer ${token}`)
         .send({ blockedBy: blocker })
+        .expect(200);
+    });
+  });
+
+  // ── Blocker prevents DONE transition ─────────────────────────────────────
+
+  describe('Blocker prevents DONE transition', () => {
+    it('returns 400 when attempting DONE with an unresolved (non-DONE) blocker', async () => {
+      const blocker = await createTicket('blocker-not-done');
+      const blocked = await createTicket('blocked-by-non-done');
+
+      // Link: blocked is blocked by blocker
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker })
+        .expect(200);
+
+      // Advance blocked through the lifecycle to IN_REVIEW
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'IN_REVIEW' })
+        .expect(200);
+
+      // Attempt to transition to DONE — blocker is still TODO → must fail
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DONE' })
+        .expect(400);
+    });
+
+    it('allows DONE when the blocker has itself been resolved to DONE', async () => {
+      const blocker = await createTicket('blocker-will-be-done');
+      const blocked = await createTicket('blocked-waits-for-done-blocker');
+
+      await request(app.getHttpServer())
+        .post(`/tickets/${blocked}/dependencies`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ blockedBy: blocker })
+        .expect(200);
+
+      // Resolve the blocker to DONE first
+      for (const status of ['IN_PROGRESS', 'IN_REVIEW', 'DONE']) {
+        await request(app.getHttpServer())
+          .patch(`/tickets/${blocker}`)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ status })
+          .expect(200);
+      }
+
+      // Now advance blocked to IN_REVIEW
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'IN_PROGRESS' })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'IN_REVIEW' })
+        .expect(200);
+
+      // Blocker is DONE → transition to DONE must succeed
+      await request(app.getHttpServer())
+        .patch(`/tickets/${blocked}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DONE' })
         .expect(200);
     });
   });

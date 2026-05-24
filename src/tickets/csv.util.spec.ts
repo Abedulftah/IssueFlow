@@ -59,4 +59,12 @@ describe('parseCsv', () => {
     const rows = parseCsv(csv);
     expect(rows[0].description).toBe('');
   });
+
+  it('handles Windows CRLF line endings', () => {
+    const csv = 'title,description\r\nFoo,Bar\r\nBaz,Qux';
+    const rows = parseCsv(csv);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ title: 'Foo', description: 'Bar' });
+    expect(rows[1]).toEqual({ title: 'Baz', description: 'Qux' });
+  });
 });

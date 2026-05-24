@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, OptimisticLockVersionMismatchError } from 'typeorm';
@@ -8,6 +8,12 @@ import { CommentMention } from './comment-mention.entity';
 import { TicketsService } from '../tickets/tickets.service';
 import { UsersService } from '../users/users.service';
 import { MailService } from '../mail/mail.service';
+import { UserRole } from '../users/user.entity';
+
+const AUTHOR_ID = 2;
+const OTHER_ID = 99;
+const ADMIN_ROLE = UserRole.ADMIN;
+const USER_ROLE = 'USER' as UserRole;
 
 const alice = { id: 10, username: 'alice', fullName: 'Alice A', email: 'alice@test.com' };
 const bob = { id: 11, username: 'bob', fullName: 'Bob B', email: 'bob@test.com' };
@@ -81,7 +87,7 @@ describe('CommentsService', () => {
       repo.create.mockReturnValue(comment);
       repo.save.mockResolvedValue(comment);
 
-      const result = await service.create(1, { authorId: 2, content: 'Hello world' });
+      const result = await service.create(1, { content: 'Hello world' }, 2);
       expect(result.mentionedUsers).toEqual([]);
       expect(mentionRepo.save).not.toHaveBeenCalled();
       expect(mailService.sendMentionNotification).not.toHaveBeenCalled();
@@ -96,7 +102,7 @@ describe('CommentsService', () => {
       repo.create.mockReturnValue(comment);
       repo.save.mockResolvedValue({ ...comment, id: 1 });
 
-      const result = await service.create(1, { authorId: 2, content: 'Hey @alice!' });
+      const result = await service.create(1, { content: 'Hey @alice!' }, 2);
       expect(mentionRepo.save).toHaveBeenCalled();
       expect(result.mentionedUsers).toEqual([
         { id: alice.id, username: alice.username, fullName: alice.fullName },
@@ -107,14 +113,19 @@ describe('CommentsService', () => {
       usersService.findByUsernames.mockResolvedValue([]);
 
       await expect(
-        service.create(1, { authorId: 2, content: 'Hey @ghost!' }),
+        service.create(1, { content: 'Hey @ghost!' }, 2),
       ).rejects.toThrow(BadRequestException);
       expect(repo.save).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when ticket does not exist', async () => {
       ticketsService.findOne.mockRejectedValue(new NotFoundException());
-      await expect(service.create(999, { authorId: 2, content: 'x' })).rejects.toThrow(NotFoundException);
+      await expect(service.create(999, { content: 'x' }, 2)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when authorId does not exist', async () => {
+      usersService.findOne.mockRejectedValue(new NotFoundException());
+      await expect(service.create(1, { content: 'x' }, 999999)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -130,7 +141,7 @@ describe('CommentsService', () => {
       mentionRepo.create.mockImplementation((v) => v);
       mentionRepo.save.mockResolvedValue([]);
 
-      const result = await service.update(1, 1, { content: '@alice @bob' });
+      const result = await service.update(1, 1, { content: '@alice @bob' }, AUTHOR_ID, USER_ROLE);
 
       // Only bob is new → only bob's mention inserted
       expect(mentionRepo.save).toHaveBeenCalledWith(
@@ -147,7 +158,7 @@ describe('CommentsService', () => {
       usersService.findByUsernames.mockResolvedValue([]);
       mentionRepo.find.mockResolvedValue([existingMention]);
 
-      await service.update(1, 1, { content: 'no mentions' });
+      await service.update(1, 1, { content: 'no mentions' }, AUTHOR_ID, USER_ROLE);
 
       expect(mentionRepo.remove).toHaveBeenCalledWith([existingMention]);
       expect(mailService.sendMentionNotification).not.toHaveBeenCalled();
@@ -163,7 +174,7 @@ describe('CommentsService', () => {
       repo.save.mockResolvedValue(mockComment());
 
       await expect(
-        service.update(1, 1, { content: '@alice' }),
+        service.update(1, 1, { content: '@alice' }, AUTHOR_ID, USER_ROLE),
       ).resolves.not.toThrow();
     });
 
@@ -171,7 +182,7 @@ describe('CommentsService', () => {
       repo.findOne.mockResolvedValue(mockComment({ version: 3 }));
       usersService.findByUsernames.mockResolvedValue([]);
 
-      await expect(service.update(1, 1, { content: 'x', version: 2 })).rejects.toThrow(ConflictException);
+      await expect(service.update(1, 1, { content: 'x', version: 2 }, AUTHOR_ID, USER_ROLE)).rejects.toThrow(ConflictException);
       expect(repo.save).not.toHaveBeenCalled();
     });
 
@@ -181,7 +192,7 @@ describe('CommentsService', () => {
       usersService.findByUsernames.mockResolvedValue([]);
       mentionRepo.find.mockResolvedValue([]);
 
-      await expect(service.update(1, 1, { content: 'x', version: 3 })).resolves.toBeDefined();
+      await expect(service.update(1, 1, { content: 'x', version: 3 }, AUTHOR_ID, USER_ROLE)).resolves.toBeDefined();
     });
 
     it('skips version check when version is omitted', async () => {
@@ -190,7 +201,7 @@ describe('CommentsService', () => {
       usersService.findByUsernames.mockResolvedValue([]);
       mentionRepo.find.mockResolvedValue([]);
 
-      await expect(service.update(1, 1, { content: 'x' })).resolves.toBeDefined();
+      await expect(service.update(1, 1, { content: 'x' }, AUTHOR_ID, USER_ROLE)).resolves.toBeDefined();
     });
 
     it('throws ConflictException on optimistic lock error from DB', async () => {
@@ -199,7 +210,7 @@ describe('CommentsService', () => {
       mentionRepo.find.mockResolvedValue([]);
       repo.save.mockRejectedValue(new OptimisticLockVersionMismatchError('Comment', 1, 0));
 
-      await expect(service.update(1, 1, { content: 'x' })).rejects.toThrow(ConflictException);
+      await expect(service.update(1, 1, { content: 'x' }, AUTHOR_ID, USER_ROLE)).rejects.toThrow(ConflictException);
     });
 
     it('rethrows non-optimistic-lock errors from save', async () => {
@@ -209,12 +220,25 @@ describe('CommentsService', () => {
       const genericError = new Error('Unexpected DB error');
       repo.save.mockRejectedValue(genericError);
 
-      await expect(service.update(1, 1, { content: 'x' })).rejects.toThrow(genericError);
+      await expect(service.update(1, 1, { content: 'x' }, AUTHOR_ID, USER_ROLE)).rejects.toThrow(genericError);
     });
 
     it('throws NotFoundException when comment does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
-      await expect(service.update(1, 999, { content: 'x' })).rejects.toThrow(NotFoundException);
+      await expect(service.update(1, 999, { content: 'x' }, AUTHOR_ID, USER_ROLE)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when non-author non-admin tries to edit', async () => {
+      repo.findOne.mockResolvedValue(mockComment());
+      await expect(service.update(1, 1, { content: 'x' }, OTHER_ID, USER_ROLE)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows admin to edit any comment', async () => {
+      repo.findOne.mockResolvedValue(mockComment());
+      repo.save.mockResolvedValue(mockComment({ content: 'x' }));
+      usersService.findByUsernames.mockResolvedValue([]);
+      mentionRepo.find.mockResolvedValue([]);
+      await expect(service.update(1, 1, { content: 'x' }, OTHER_ID, ADMIN_ROLE)).resolves.toBeDefined();
     });
   });
 
@@ -224,12 +248,23 @@ describe('CommentsService', () => {
     it('removes the comment when it exists', async () => {
       repo.findOne.mockResolvedValue(mockComment());
       repo.remove.mockResolvedValue(undefined);
-      await expect(service.remove(1, 1)).resolves.toBeUndefined();
+      await expect(service.remove(1, 1, AUTHOR_ID, USER_ROLE)).resolves.toBeUndefined();
     });
 
     it('throws NotFoundException when comment does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
-      await expect(service.remove(1, 999)).rejects.toThrow(NotFoundException);
+      await expect(service.remove(1, 999, AUTHOR_ID, USER_ROLE)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws ForbiddenException when non-author non-admin tries to delete', async () => {
+      repo.findOne.mockResolvedValue(mockComment());
+      await expect(service.remove(1, 1, OTHER_ID, USER_ROLE)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows admin to delete any comment', async () => {
+      repo.findOne.mockResolvedValue(mockComment());
+      repo.remove.mockResolvedValue(undefined);
+      await expect(service.remove(1, 1, OTHER_ID, ADMIN_ROLE)).resolves.toBeUndefined();
     });
   });
 
